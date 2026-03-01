@@ -25,6 +25,7 @@ export interface SWEOfficialOptions {
   workDir: string;
   dockerProxy?: string;
   maxInstances?: number;
+  imageNamespace?: string;
 }
 
 export interface SWEOfficialResult {
@@ -41,9 +42,15 @@ function isDockerAvailable(): boolean {
   }
 }
 
-function getSWEBenchImageName(instanceId: string): string {
-  const slug = instanceId.toLowerCase().replace(/__/g, '_s_').replace(/[^a-z0-9._-]/g, '_');
-  return `swebench/sweb.eval.x86_64.${slug}:latest`;
+function getSWEBenchImageName(instanceId: string, imageNamespace?: string): string {
+  const normalizedNamespace = (imageNamespace || 'swebench').trim().replace(/\/+$/, '');
+  const slug = instanceId
+    .toLowerCase()
+    .replace(/__/g, normalizedNamespace ? '_1776_' : '__')
+    .replace(/[^a-z0-9._-]/g, '_');
+
+  const image = `sweb.eval.x86_64.${slug}:latest`;
+  return normalizedNamespace ? `${normalizedNamespace}/${image}` : image;
 }
 
 function sanitizeContainerName(raw: string): string {
@@ -54,12 +61,15 @@ function sanitizeContainerName(raw: string): string {
     .slice(0, 128);
 }
 
-function pullImage(imageName: string, proxyUrl?: string): boolean {
+function pullImage(imageName: string, proxyUrl?: string): { ok: boolean; error?: string } {
   const inspect = spawnSync('docker', ['image', 'inspect', imageName], {
     stdio: 'ignore',
     timeout: 15000,
   });
-  if (inspect.status === 0) return true;
+  if (inspect.status === 0) {
+    console.log(`  [swe] image ready ${imageName}`);
+    return { ok: true };
+  }
 
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
   if (proxyUrl) {
@@ -72,17 +82,29 @@ function pullImage(imageName: string, proxyUrl?: string): boolean {
   console.log(`  [swe] pulling image ${imageName}`);
   const pull = spawnSync('docker', ['pull', imageName], {
     env,
-    stdio: ['pipe', 'inherit', 'pipe'],
+    stdio: ['ignore', 'inherit', 'inherit'],
     timeout: 1200000,
   });
 
-  return pull.status === 0;
+  if (pull.status === 0) {
+    console.log(`  [swe] image pulled ${imageName}`);
+    return { ok: true };
+  }
+
+  return { ok: false, error: `docker pull failed with exit code ${pull.status}` };
 }
 
-function evaluateWithDocker(instance: SWEInstance, patch: string, workDir: string, proxyUrl?: string): { passed: boolean; error?: string } {
-  const imageName = getSWEBenchImageName(instance.instance_id);
-  if (!pullImage(imageName, proxyUrl)) {
-    return { passed: false, error: `failed to pull image ${imageName}` };
+function evaluateWithDocker(
+  instance: SWEInstance,
+  patch: string,
+  workDir: string,
+  imageNamespace?: string,
+  proxyUrl?: string,
+): { passed: boolean; error?: string; errorCode?: string } {
+  const imageName = getSWEBenchImageName(instance.instance_id, imageNamespace);
+  const pull = pullImage(imageName, proxyUrl);
+  if (!pull.ok) {
+    return { passed: false, errorCode: 'IMAGE_PULL_FAILED', error: pull.error || `failed to pull image ${imageName}` };
   }
 
   fs.mkdirSync(workDir, { recursive: true });
@@ -106,13 +128,18 @@ function evaluateWithDocker(instance: SWEInstance, patch: string, workDir: strin
     '  echo "[swe-docker] fix patch applied with patch command"',
     'else',
     '  echo "[swe-docker] fix patch apply failed"',
-    '  exit 1',
+    '  exit 81',
     'fi',
     'if [ -f /patches/test.patch ] && [ -s /patches/test.patch ]; then',
     '  git apply -v /patches/test.patch || true',
     'fi',
     `echo "[swe-docker] running: ${instance.test_command}"`,
-    `${instance.test_command}`,
+    `if ${instance.test_command}; then`,
+    '  echo "[swe-docker] tests passed"',
+    'else',
+    '  echo "[swe-docker] tests failed"',
+    '  exit 82',
+    'fi',
   ].join('\n');
 
   fs.writeFileSync(path.join(workDir, 'evaluate.sh'), script, 'utf-8');
@@ -124,14 +151,19 @@ function evaluateWithDocker(instance: SWEInstance, patch: string, workDir: strin
     imageName,
     'bash', '/patches/evaluate.sh',
   ], {
-    stdio: ['pipe', 'inherit', 'pipe'],
+    stdio: ['ignore', 'inherit', 'inherit'],
     timeout: 900000,
   });
 
   if (run.status === 0) return { passed: true };
 
-  const stderr = (run.stderr || '').toString().trim();
-  return { passed: false, error: stderr || `exit code ${run.status}` };
+  if (run.status === 81) {
+    return { passed: false, errorCode: 'PATCH_APPLY_FAILED', error: 'failed to apply patch' };
+  }
+  if (run.status === 82) {
+    return { passed: false, errorCode: 'TEST_FAILED', error: 'test command failed' };
+  }
+  return { passed: false, errorCode: 'DOCKER_RUN_FAILED', error: `docker run exit code ${run.status}` };
 }
 
 function cleanupDir(workDir: string): void {
@@ -203,9 +235,11 @@ export function runSWEOfficialBenchmark(opts: SWEOfficialOptions): SWEOfficialRe
   const tasks: TaskResult[] = [];
 
   console.log(`[swe] dataset: swe-bench-verified (${selected.length} instances)`);
+  console.log(`[swe] image namespace: ${(opts.imageNamespace || 'swebench').trim() || '(local-only)'}`);
   for (const inst of selected) {
     const pred = predictions.get(inst.instance_id);
     if (!pred) {
+      console.log(`[swe:${inst.instance_id}] no prediction`);
       tasks.push({
         task_id: inst.instance_id,
         passed: false,
@@ -219,14 +253,21 @@ export function runSWEOfficialBenchmark(opts: SWEOfficialOptions): SWEOfficialRe
 
     const start = Date.now();
     const instanceWorkDir = path.join(path.resolve(process.cwd(), opts.workDir), `${inst.instance_id}-${Date.now()}`);
+    console.log(`[swe:${inst.instance_id}] evaluating`);
     try {
-      const evalResult = evaluateWithDocker(inst, pred.patch, instanceWorkDir, opts.dockerProxy);
+      const evalResult = evaluateWithDocker(inst, pred.patch, instanceWorkDir, opts.imageNamespace, opts.dockerProxy);
+      const duration = Date.now() - start;
+      if (evalResult.passed) {
+        console.log(`[swe:${inst.instance_id}] PASS (${duration}ms)`);
+      } else {
+        console.log(`[swe:${inst.instance_id}] FAIL ${evalResult.errorCode || 'TEST_FAILED'} (${duration}ms)${evalResult.error ? ` - ${evalResult.error}` : ''}`);
+      }
       tasks.push({
         task_id: inst.instance_id,
         passed: evalResult.passed,
         score: evalResult.passed ? 1 : 0,
-        duration_ms: Date.now() - start,
-        error_code: evalResult.passed ? undefined : 'TEST_FAILED',
+        duration_ms: duration,
+        error_code: evalResult.passed ? undefined : (evalResult.errorCode || 'TEST_FAILED'),
         token_usage: typeof pred.tokens === 'number'
           ? { input_tokens: null, output_tokens: null, cache_tokens: null, total_tokens: pred.tokens, latency_ms: null }
           : null,

@@ -25,6 +25,7 @@ export interface RunOptions {
   swePredictionsFile?: string;
   swePredictionOut: string;
   sweWorkDir: string;
+  sweImageNamespace: string;
   sweMaxInstances?: number;
   sweAutoGenerate: boolean;
   sweGenerateOnly: boolean;
@@ -114,6 +115,9 @@ export function parseRunOptions(options: Record<string, string>): RunOptions {
     swePredictionsFile: getOption(options, 'swe-predictions-file', 'swe_predictions_file', 'predictions-file', 'predictions_file'),
     swePredictionOut: getOption(options, 'swe-prediction-out', 'swe_prediction_out') || 'tests/tmp/swe-predictions.generated.json',
     sweWorkDir: getOption(options, 'swe-work-dir', 'swe_work_dir') || 'tests/tmp/swe-work',
+    sweImageNamespace: getOption(options, 'swe-image-namespace', 'swe_image_namespace')
+      || getEnvValue('BENCHMARK_SWE_IMAGE_NAMESPACE', 'SWE_IMAGE_NAMESPACE')
+      || 'swebench',
     sweMaxInstances: sweMaxInstances && sweMaxInstances > 0 ? sweMaxInstances : undefined,
     sweAutoGenerate: asBoolean(getOption(options, 'swe-auto-generate', 'swe_auto_generate'), true),
     sweGenerateOnly: asBoolean(getOption(options, 'swe-generate-only', 'swe_generate_only'), false),
@@ -282,6 +286,8 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
           model: opts.model,
           seed: opts.seed,
           timeoutMs: opts.timeoutMs,
+          imageNamespace: opts.sweImageNamespace,
+          dockerProxy: process.env.BENCHMARK_DOCKER_PROXY,
           maxInstances: opts.sweMaxInstances,
         });
         predictionsFile = gen.outputFile;
@@ -298,6 +304,7 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
         casesFile: opts.sweCasesFile,
         predictionsFile,
         workDir: opts.sweWorkDir,
+        imageNamespace: opts.sweImageNamespace,
         maxInstances: opts.sweMaxInstances,
         dockerProxy: process.env.BENCHMARK_DOCKER_PROXY,
       });
