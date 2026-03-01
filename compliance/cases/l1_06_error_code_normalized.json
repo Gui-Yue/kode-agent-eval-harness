@@ -1,0 +1,32 @@
+{
+  "id": "error_code_normalized",
+  "level": "L1",
+  "description": "if output.error exists, code must be normalized",
+  "preconditions": {
+    "adapter": "mock",
+    "benchmark": "mock",
+    "model": "openai/glm-5",
+    "timeout_ms": 30000
+  },
+  "input": {
+    "task_id": "task-error-code",
+    "turn_id": 1,
+    "observation": {
+      "messages": [{ "role": "user", "content": "normal run" }],
+      "state": {},
+      "tools": []
+    },
+    "allowed_actions": ["final_answer", "no_op"],
+    "deadline_ms": 30000,
+    "state": {}
+  },
+  "assertions": [
+    {
+      "type": "in_set",
+      "path": "$.output.error.code",
+      "expected": ["TIMEOUT", "INVALID_ACTION", "RATE_LIMIT", "AUTH_ERROR", "ENV_ERROR", "UPSTREAM_ERROR", "INTERNAL_ERROR"],
+      "optional": true
+    }
+  ],
+  "expected": { "pass": true, "error_code": null }
+}

@@ -1,0 +1,72 @@
+{
+  "id": "step_schema_valid",
+  "level": "L1",
+  "description": "Adapter.step returns a valid StepOutput object",
+  "preconditions": {
+    "adapter": "<adapter-name>",
+    "benchmark": "tau",
+    "model": "openai/glm-5",
+    "timeout_ms": 30000
+  },
+  "input": {
+    "task_id": "task-001",
+    "turn_id": 1,
+    "observation": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Please search flights from SFO to LAX."
+        }
+      ],
+      "state": {},
+      "tools": [
+        {
+          "name": "search_flights",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "from": { "type": "string" },
+              "to": { "type": "string" }
+            },
+            "required": ["from", "to"]
+          }
+        }
+      ]
+    },
+    "allowed_actions": ["tool_call", "final_answer", "no_op"],
+    "deadline_ms": 30000,
+    "state": {}
+  },
+  "assertions": [
+    {
+      "type": "json_schema",
+      "path": "$.output",
+      "schema_ref": "schema/agent-step-output.schema.json"
+    },
+    {
+      "type": "in_set",
+      "path": "$.output.action.type",
+      "expected": ["tool_call", "final_answer", "no_op"]
+    },
+    {
+      "type": "non_negative",
+      "path": "$.output.usage.total_tokens",
+      "optional": true
+    },
+    {
+      "type": "max_value",
+      "path": "$.metrics.step_duration_ms",
+      "max": 5000
+    },
+    {
+      "type": "equals",
+      "path": "$.output.error",
+      "value": null,
+      "optional": true
+    }
+  ],
+  "expected": {
+    "pass": true,
+    "error_code": null
+  }
+}

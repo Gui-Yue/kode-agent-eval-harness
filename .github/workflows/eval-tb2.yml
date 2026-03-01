@@ -1,0 +1,94 @@
+name: eval-tb2-official
+
+on:
+  workflow_dispatch:
+    inputs:
+      tb2_runner:
+        description: "Override tb2 runner: auto|harbor|uvx|docker (empty uses repo var EVAL_TB2_RUNNER)"
+        required: false
+        default: ""
+      tb2_dataset:
+        description: "Override TB2 dataset (empty uses repo var EVAL_TB2_DATASET)"
+        required: false
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/eval-tb2.yml"
+  schedule:
+    - cron: "0 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-tb2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.RUN_EVAL_TB2 == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 720
+    env:
+      EVAL_TB2_DATASET: ${{ vars.EVAL_TB2_DATASET }}
+      EVAL_TB2_AGENT: ${{ vars.EVAL_TB2_AGENT }}
+      EVAL_TB2_RUNNER: ${{ vars.EVAL_TB2_RUNNER }}
+      EVAL_TB2_PYTHON: ${{ vars.EVAL_TB2_PYTHON }}
+      EVAL_TB2_DOCKER_IMAGE: ${{ vars.EVAL_TB2_DOCKER_IMAGE }}
+      BENCHMARK_MODEL: ${{ vars.EVAL_MODEL }}
+      OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+      BENCHMARK_DOCKER_PROXY: ${{ vars.BENCHMARK_DOCKER_PROXY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Docker
+        run: docker info
+
+      - name: Run TB2 official evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports tests/tmp/jobs
+
+          MODEL="${BENCHMARK_MODEL:-openai/glm-5}"
+          TB2_AGENT="${EVAL_TB2_AGENT:-oracle}"
+
+          TB2_DATASET_INPUT="${{ github.event.inputs.tb2_dataset }}"
+          TB2_RUNNER_INPUT="${{ github.event.inputs.tb2_runner }}"
+
+          TB2_DATASET="${TB2_DATASET_INPUT:-${EVAL_TB2_DATASET:-terminal-bench@2.0}}"
+          TB2_RUNNER="${TB2_RUNNER_INPUT:-${EVAL_TB2_RUNNER:-uvx}}"
+          TB2_PYTHON="${EVAL_TB2_PYTHON:-3.12}"
+          TB2_DOCKER_IMAGE="${EVAL_TB2_DOCKER_IMAGE:-ghcr.io/astral-sh/uv:python3.12-bookworm}"
+
+          CMD=(npm run run -- --benchmark=tb2 --model="$MODEL" --tb2-agent="$TB2_AGENT" --tb2-dataset="$TB2_DATASET" --tb2-runner="$TB2_RUNNER" --tb2-python="$TB2_PYTHON" --tb2-docker-image="$TB2_DOCKER_IMAGE" --tb2-jobs-dir=tests/tmp/jobs --out=reports/tb2-official.json)
+
+          echo "Running: ${CMD[*]}"
+          "${CMD[@]}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tb2-eval-${{ github.run_id }}
+          path: |
+            reports/tb2-official.json
+            tests/tmp/jobs
+          if-no-files-found: warn

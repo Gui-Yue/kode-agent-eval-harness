@@ -1,0 +1,58 @@
+# Node / TypeScript
+node_modules/
+dist/
+build/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# Benchmark artifacts
+tests/tmp/
+tmp/
+jobs/
+reports/
+artifacts/
+benchmark-report*.json
+*.html
+
+# TAU/TB2 local caches and data
+.tau2-data/
+tau2-data/
+.tb2-uv-cache/
+.uv-cache/
+.uv-tools/
+.uv-python/
+.xdg-data/
+
+# Python cache (if adapters use python)
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Markdown tracking policy
+# Ignore all markdown files by default, except README.md and docs/doc directories.
+**/*.md
+!/README.md
+!docs/**/*.md
+!doc/**/*.md

@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentStepOutput",
+  "type": "object",
+  "required": ["action", "terminal"],
+  "properties": {
+    "action": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "arguments": { "type": "object" },
+        "content": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "terminal": { "type": "boolean" },
+    "state_delta": { "type": "object" },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "input_tokens": { "type": "number", "minimum": 0 },
+        "output_tokens": { "type": "number", "minimum": 0 },
+        "cache_tokens": { "type": "number", "minimum": 0 },
+        "total_tokens": { "type": "number", "minimum": 0 },
+        "latency_ms": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": ["object", "null"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "TIMEOUT",
+            "INVALID_ACTION",
+            "RATE_LIMIT",
+            "AUTH_ERROR",
+            "ENV_ERROR",
+            "UPSTREAM_ERROR",
+            "INTERNAL_ERROR"
+          ]
+        },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "details": { "type": "object" }
+      },
+      "required": ["code", "message", "retryable"],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

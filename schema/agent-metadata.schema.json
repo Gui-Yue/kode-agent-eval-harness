@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentMetadata",
+  "type": "object",
+  "required": ["name", "version", "spec_version", "capabilities", "supported_benchmarks"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "spec_version": { "type": "string", "const": "1.0" },
+    "capabilities": {
+      "type": "object",
+      "required": ["tool_calling", "multi_turn", "streaming", "structured_output"],
+      "properties": {
+        "tool_calling": { "type": "boolean" },
+        "multi_turn": { "type": "boolean" },
+        "streaming": { "type": "boolean" },
+        "structured_output": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "supported_benchmarks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["mock", "swe", "tb2", "tau"]
+      },
+      "minItems": 1
+    }
+  },
+  "additionalProperties": false
+}

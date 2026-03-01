@@ -1,0 +1,27 @@
+{
+  "id": "step_timeout_handling",
+  "level": "L1",
+  "description": "step should finish within practical bound for compliance smoke",
+  "preconditions": {
+    "adapter": "mock",
+    "benchmark": "mock",
+    "model": "openai/glm-5",
+    "timeout_ms": 30000
+  },
+  "input": {
+    "task_id": "task-timeout",
+    "turn_id": 1,
+    "observation": {
+      "messages": [{ "role": "user", "content": "respond quickly" }],
+      "state": {},
+      "tools": []
+    },
+    "allowed_actions": ["final_answer", "no_op"],
+    "deadline_ms": 1,
+    "state": {}
+  },
+  "assertions": [
+    { "type": "max_value", "path": "$.metrics.step_duration_ms", "max": 5000 }
+  ],
+  "expected": { "pass": true, "error_code": null }
+}

@@ -1,0 +1,85 @@
+name: eval-swe-official
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_instances:
+        description: "Override SWE max instances (empty uses repo var EVAL_SWE_MAX_INSTANCES)"
+        required: false
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "benchmarks-data/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/eval-swe.yml"
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-swe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.RUN_EVAL_SWE == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 720
+    env:
+      EVAL_AGENT_CORE: ${{ vars.EVAL_AGENT_CORE }}
+      EVAL_SWE_MAX_INSTANCES: ${{ vars.EVAL_SWE_MAX_INSTANCES }}
+      BENCHMARK_PROVIDER: ${{ vars.EVAL_PROVIDER }}
+      BENCHMARK_MODEL: ${{ vars.EVAL_MODEL }}
+      OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+      BENCHMARK_DOCKER_PROXY: ${{ vars.BENCHMARK_DOCKER_PROXY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Docker
+        run: docker info
+
+      - name: Run SWE official evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports tests/tmp
+
+          AGENT="${EVAL_AGENT_CORE:-kode-sdk}"
+          MODEL="${BENCHMARK_MODEL:-openai/glm-5}"
+          MAX="${{ github.event.inputs.max_instances }}"
+          if [[ -z "$MAX" ]]; then
+            MAX="${EVAL_SWE_MAX_INSTANCES:-0}"
+          fi
+
+          CMD=(npm run run -- --benchmark=swe --agent="$AGENT" --model="$MODEL" --swe-auto-generate=true --out=reports/swe-official.json)
+          if [[ "$MAX" =~ ^[0-9]+$ ]] && [[ "$MAX" -gt 0 ]]; then
+            CMD+=(--swe-max-instances="$MAX")
+          fi
+
+          echo "Running: ${CMD[*]}"
+          "${CMD[@]}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: swe-eval-${{ github.run_id }}
+          path: |
+            reports/swe-official.json
+            tests/tmp/swe-predictions.generated.json
+          if-no-files-found: warn

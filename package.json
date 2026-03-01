@@ -1,0 +1,28 @@
+{
+  "name": "kode-agent-eval-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pluggable agent evaluation harness for SWE-bench-Verified, Terminal Bench 2.0, and TAU2",
+  "license": "MIT",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "run": "tsx src/index.ts run",
+    "compare": "tsx src/index.ts compare",
+    "report": "tsx src/index.ts report",
+    "compliance": "tsx src/index.ts compliance"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

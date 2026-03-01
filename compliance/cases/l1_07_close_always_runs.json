@@ -1,0 +1,25 @@
+{
+  "id": "close_always_runs",
+  "level": "L1",
+  "description": "runner must invoke close() after step",
+  "preconditions": {
+    "adapter": "mock",
+    "benchmark": "mock",
+    "model": "openai/glm-5",
+    "timeout_ms": 30000
+  },
+  "input": {
+    "task_id": "task-close",
+    "turn_id": 1,
+    "observation": {
+      "messages": [{ "role": "user", "content": "close check" }],
+      "state": {},
+      "tools": []
+    },
+    "allowed_actions": ["final_answer", "no_op"],
+    "deadline_ms": 30000,
+    "state": {}
+  },
+  "assertions": [],
+  "expected": { "pass": true, "error_code": null }
+}

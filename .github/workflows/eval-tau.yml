@@ -1,0 +1,87 @@
+name: eval-tau-official
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Override TAU domain (empty uses repo var EVAL_TAU_DOMAIN, default airline)"
+        required: false
+        default: ""
+      num_trials:
+        description: "Override TAU num-trials (empty uses repo var EVAL_TAU_NUM_TRIALS, default 1)"
+        required: false
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/eval-tau.yml"
+  schedule:
+    - cron: "0 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-tau-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.RUN_EVAL_TAU == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 720
+    env:
+      EVAL_TAU_DOMAIN: ${{ vars.EVAL_TAU_DOMAIN }}
+      EVAL_TAU_NUM_TRIALS: ${{ vars.EVAL_TAU_NUM_TRIALS }}
+      BENCHMARK_PROVIDER: ${{ vars.EVAL_PROVIDER }}
+      BENCHMARK_MODEL: ${{ vars.EVAL_MODEL }}
+      OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+      BENCHMARK_DOCKER_PROXY: ${{ vars.BENCHMARK_DOCKER_PROXY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TAU official evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports tests/tmp
+
+          PROVIDER="${BENCHMARK_PROVIDER:-openai}"
+          MODEL="${BENCHMARK_MODEL:-openai/glm-5}"
+
+          DOMAIN_INPUT="${{ github.event.inputs.domain }}"
+          TRIALS_INPUT="${{ github.event.inputs.num_trials }}"
+
+          DOMAIN="${DOMAIN_INPUT:-${EVAL_TAU_DOMAIN:-airline}}"
+          TRIALS="${TRIALS_INPUT:-${EVAL_TAU_NUM_TRIALS:-1}}"
+
+          CMD=(npm run run -- --benchmark=tau --provider="$PROVIDER" --model="$MODEL" --tau-domain="$DOMAIN" --num-trials="$TRIALS" --tau-data-dir=tests/tmp/tau2-data --out=reports/tau-official.json)
+
+          echo "Running: ${CMD[*]}"
+          "${CMD[@]}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tau-eval-${{ github.run_id }}
+          path: |
+            reports/tau-official.json
+            tests/tmp/tau2-data/simulations
+          if-no-files-found: warn
