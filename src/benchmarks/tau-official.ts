@@ -7,12 +7,15 @@ import { getEnvValue, resolveEnvFile } from '../utils/env';
 const TAU2_SOURCE = 'git+https://github.com/sierra-research/tau2-bench@v0.2.0';
 const TAU2_REPO = 'https://github.com/sierra-research/tau2-bench';
 const TAU2_REF = 'v0.2.0';
+const TAU_PLUGIN_MODULE = 'kode_tau2_agent_plugin';
+const TAU_PLUGIN_DIR = path.join(process.cwd(), 'src');
 
 export interface TAUOfficialOptions {
   domain: string;
   numTrials: number;
   provider: string;
   model: string;
+  agentCore?: string;
   userModel?: string;
   dataDir: string;
   envFile?: string;
@@ -154,6 +157,8 @@ function shouldKeepTauLogLine(line: string): boolean {
   const s = line.trim();
   if (!s) return false;
   if (s.includes('Provider List: https://docs.litellm.ai/docs/providers')) return false;
+  if (s.startsWith('Give Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new')) return false;
+  if (s.startsWith('LiteLLM.Info: If you need to debug this error')) return false;
   if (s.includes('tau2.utils.llm_utils:get_response_cost')) return false;
   if (s.includes("This model isn't mapped yet.")) return false;
   return true;
@@ -200,6 +205,26 @@ async function runTau2WithFilteredLogs(runner: RunnerSpec, args: string[], env: 
 
 function sanitizeLabel(v: string): string {
   return v.trim().replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 96);
+}
+
+function resolveTauAgentCore(raw?: string): string {
+  const v = (raw || '').trim();
+  if (!v) return 'llm_agent';
+  if (v === 'kode-sdk' || v === 'kode-agent' || v === 'mock') {
+    console.warn(`[tau] Unsupported tau agent core "${v}", fallback to llm_agent`);
+    return 'llm_agent';
+  }
+  return v;
+}
+
+function isBuiltinTauAgentCore(agentCore: string): boolean {
+  return agentCore === 'llm_agent' || agentCore === 'llm_agent_solo' || agentCore === 'llm_agent_gt';
+}
+
+function appendPythonPath(env: NodeJS.ProcessEnv, extraPath: string): void {
+  const key = 'PYTHONPATH';
+  const current = env[key];
+  env[key] = current ? `${extraPath}${path.delimiter}${current}` : extraPath;
 }
 
 function readJson(filePath: string): Tau2RunOutput {
@@ -347,6 +372,14 @@ export async function runTAUOfficialBenchmark(rawOpts: TAUOfficialOptions): Prom
 
   const provider = rawOpts.provider || 'openai';
   const model = toTau2Model(provider, rawOpts.model);
+  const agentCore = resolveTauAgentCore(rawOpts.agentCore);
+  const builtinAgentCore = isBuiltinTauAgentCore(agentCore);
+  const defaultMaxConcurrency = 3;
+  const rawMaxConcurrency = (process.env.TAU2_MAX_CONCURRENCY || '').trim();
+  const parsedMaxConcurrency = Number(rawMaxConcurrency);
+  const maxConcurrency = Number.isFinite(parsedMaxConcurrency) && parsedMaxConcurrency > 0
+    ? Math.floor(parsedMaxConcurrency)
+    : defaultMaxConcurrency;
   const userModel = rawOpts.userModel ? toTau2Model(provider, rawOpts.userModel) : model;
 
   const env: NodeJS.ProcessEnv = {
@@ -366,10 +399,45 @@ export async function runTAUOfficialBenchmark(rawOpts: TAUOfficialOptions): Prom
 
   applyProviderEnv(env, provider, rawOpts.model, envFile);
 
+  if (!builtinAgentCore) {
+    const pluginModule = TAU_PLUGIN_MODULE;
+    const pluginPath = path.resolve(TAU_PLUGIN_DIR);
+    const sitecustomizePath = path.join(pluginPath, 'sitecustomize.py');
+    if (!fs.existsSync(sitecustomizePath)) {
+      throw new Error(
+        `TAU custom agent "${agentCore}" requires plugin hook file: ${sitecustomizePath}. ` +
+        `Ensure src/sitecustomize.py exists in this repository.`,
+      );
+    }
+
+    appendPythonPath(env, pluginPath);
+    env.TAU2_AGENT_PLUGIN_MODULE = pluginModule;
+    env.TAU2_AGENT_PLUGIN_NAME = agentCore;
+    if (!env.TAU2_KODE_BRIDGE_TIMEOUT_MS) env.TAU2_KODE_BRIDGE_TIMEOUT_MS = '300000';
+    if (!env.TAU2_KODE_BRIDGE_RETRIES) env.TAU2_KODE_BRIDGE_RETRIES = '2';
+    if (!env.TAU2_KODE_MIN_REQUEST_INTERVAL_MS) env.TAU2_KODE_MIN_REQUEST_INTERVAL_MS = '2000';
+    if (!env.TAU2_USER_MIN_REQUEST_INTERVAL_MS) env.TAU2_USER_MIN_REQUEST_INTERVAL_MS = '5000';
+    if (!env.TAU2_USER_REQUEST_JITTER_MS) env.TAU2_USER_REQUEST_JITTER_MS = '2000';
+    if (!env.TAU2_USER_RATE_LIMIT_RETRIES) env.TAU2_USER_RATE_LIMIT_RETRIES = '6';
+    if (!env.TAU2_USER_RATE_LIMIT_BACKOFF_MS) env.TAU2_USER_RATE_LIMIT_BACKOFF_MS = '5000';
+    console.log(`TAU plugin hook enabled: module=${pluginModule} path=${pluginPath}`);
+  }
+
   const allTasks: TaskResult[] = [];
 
   console.log(`TAU official source: tau2 (${TAU2_SOURCE})`);
   console.log(`TAU data dir: ${dataDir}`);
+  console.log(`TAU agent core: ${agentCore}`);
+  console.log(`TAU max concurrency: ${maxConcurrency}`);
+  if (!builtinAgentCore) {
+    console.log(`TAU kode bridge min request interval: ${env.TAU2_KODE_MIN_REQUEST_INTERVAL_MS}ms`);
+    console.log(
+      `TAU user simulator min request interval: ${env.TAU2_USER_MIN_REQUEST_INTERVAL_MS}ms `
+      + `jitter=${env.TAU2_USER_REQUEST_JITTER_MS}ms `
+      + `retries=${env.TAU2_USER_RATE_LIMIT_RETRIES} `
+      + `backoff=${env.TAU2_USER_RATE_LIMIT_BACKOFF_MS}ms`,
+    );
+  }
 
   for (const domain of domains) {
     const saveName = sanitizeLabel(`tau2-${domain}-${provider}-${rawOpts.model}-${Date.now()}`);
@@ -379,8 +447,10 @@ export async function runTAUOfficialBenchmark(rawOpts: TAUOfficialOptions): Prom
       ...runner.argsPrefix,
       'run',
       '--domain', domain,
+      '--agent', agentCore,
       '--agent-llm', model,
       '--user-llm', userModel,
+      '--max-concurrency', String(maxConcurrency),
       '--num-trials', String(rawOpts.numTrials),
       '--save-to', saveName,
     ];

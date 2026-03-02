@@ -31,7 +31,9 @@ Auto-run switches (Repository Variables):
 
 Shared runtime variables:
 
-- `EVAL_AGENT_CORE` (`kode-sdk` or `kode-agent`, used by SWE workflow)
+- `EVAL_AGENT_CORE`
+  - SWE workflow: adapter core (`kode-sdk` / `kode-agent`)
+  - TAU workflow: fallback tau2 agent core (`llm_agent` / `llm_agent_solo` / `llm_agent_gt`)
 - `EVAL_PROVIDER` (for TAU, default `openai`)
 - `EVAL_MODEL` (default `openai/glm-5`)
 - `OPENAI_BASE_URL` (if using OpenAI-compatible endpoints)
@@ -40,7 +42,7 @@ Shared runtime variables:
 Benchmark-specific variables:
 
 - SWE: `EVAL_SWE_MAX_INSTANCES`
-- TAU: `EVAL_TAU_DOMAIN`, `EVAL_TAU_NUM_TRIALS`
+- TAU: `EVAL_TAU_DOMAIN`, `EVAL_TAU_NUM_TRIALS`, `EVAL_TAU_AGENT_CORE`
 - TB2: `EVAL_TB2_DATASET`, `EVAL_TB2_AGENT`, `EVAL_TB2_RUNNER`, `EVAL_TB2_PYTHON`, `EVAL_TB2_DOCKER_IMAGE`
 
 Required secrets (set based on provider):
@@ -52,7 +54,9 @@ Required secrets (set based on provider):
 Note:
 
 - SWE workflow uses pluggable adapter core (`EVAL_AGENT_CORE`).
-- TAU/TB2 workflows execute official harness paths; they are controlled by provider/model and benchmark-specific vars.
+- TAU workflow executes official tau2 path and supports configurable tau agent core (`EVAL_TAU_AGENT_CORE` or fallback `EVAL_AGENT_CORE`).
+- TAU custom core path: set `EVAL_TAU_AGENT_CORE=<custom_name>`. The harness auto-loads built-in plugin hook files under `src/`.
+- TB2 workflow executes official harness path.
 
 ## Real KODE Runtime Adapters
 
@@ -73,7 +77,6 @@ The CLI auto-loads root `.env` on startup.
 ### Common env vars
 
 - `BENCHMARK_PROVIDER` / `BENCHMARK_MODEL` (defaults when `--provider` / `--model` are not passed)
-- `MODEL_ID` / `OPENAI_MODEL_ID` / `ANTHROPIC_MODEL_ID` / `GEMINI_MODEL_ID` (also used as model fallback)
 - `OPENAI_API_KEY` / `OPENAI_BASE_URL`
 - `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`
 - `GEMINI_API_KEY` / `GEMINI_BASE_URL`
@@ -178,11 +181,36 @@ npm run run -- \
   --benchmark=tau \
   --provider=openai \
   --model=glm-5 \
+  --tau-agent-core=llm_agent \
   --tau-domain=airline \
   --num-trials=1 \
   --tau-data-dir=tests/tmp/tau2-data \
   --out=reports/tau-run.json
 ```
+
+TAU custom agent core (plugin hook mode):
+
+```bash
+npm run run -- \
+  --benchmark=tau \
+  --provider=openai \
+  --model=glm-5 \
+  --tau-agent-core=kode_agent \
+  --tau-domain=airline \
+  --num-trials=1 \
+  --tau-data-dir=tests/tmp/tau2-data \
+  --out=reports/tau-kode-agent.json
+```
+
+Current built-in plugin files:
+- `src/sitecustomize.py`: Python startup hook that auto-imports plugin module.
+- `src/kode_tau2_agent_plugin.py`: registers `KodeLLMAgent` (subclass of tau2 `LLMAgent`) into tau2 registry.
+- `src/tau2_kode_bridge.mjs`: Node bridge that calls `@shareai-lab/kode-sdk` and returns either message or tool_call JSON.
+
+Requirements for TAU custom core:
+- Node `node` command available.
+- `@shareai-lab/kode-sdk` installed (`npm install --no-save @shareai-lab/kode-sdk`).
+- provider env configured (`OPENAI_API_KEY` / `OPENAI_BASE_URL`, etc.).
 
 ## Compliance Commands
 

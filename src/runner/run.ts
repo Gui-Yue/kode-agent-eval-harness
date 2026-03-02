@@ -41,6 +41,7 @@ export interface RunOptions {
   tauDomain: string;
   tauNumTrials: number;
   tauDataDir: string;
+  tauAgentCore: string;
   tauUserModel?: string;
   tauEnvFile?: string;
 }
@@ -133,6 +134,9 @@ export function parseRunOptions(options: Record<string, string>): RunOptions {
     tauDomain: getOption(options, 'tau-domain', 'tau_domain') || 'airline',
     tauNumTrials: asNumber(getOption(options, 'num-trials', 'num_trials', 'tau-num-trials'), 1),
     tauDataDir: getOption(options, 'tau-data-dir', 'tau_data_dir') || 'tests/tmp/tau2-data',
+    tauAgentCore: getOption(options, 'tau-agent-core', 'tau_agent_core', 'agent-core', 'agent_core')
+      || getEnvValue('BENCHMARK_TAU_AGENT_CORE', 'TAU_AGENT_CORE', 'EVAL_AGENT_CORE')
+      || 'llm_agent',
     tauUserModel: getOption(options, 'tau-user-model', 'tau_user_model'),
     tauEnvFile: getOption(options, 'tau-env-file', 'tau_env_file', 'env-file', 'env_file'),
   };
@@ -331,6 +335,7 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
         numTrials: opts.tauNumTrials,
         provider: opts.provider,
         model: opts.model,
+        agentCore: opts.tauAgentCore,
         userModel: opts.tauUserModel,
         dataDir: opts.tauDataDir,
         envFile: opts.tauEnvFile,
@@ -345,7 +350,7 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
 
 function displayAgentLabel(opts: RunOptions): string {
   if (opts.benchmark === 'tb2') return opts.tb2Agent;
-  if (opts.benchmark === 'tau') return 'tau2-llm_agent';
+  if (opts.benchmark === 'tau') return `tau2-${opts.tauAgentCore}`;
   if (opts.benchmark === 'swe') return opts.agent;
   return opts.agent;
 }
