@@ -125,6 +125,21 @@ function asFiniteNumber(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
+function parseTimestampMs(v: unknown): number | undefined {
+  if (typeof v !== 'string' || !v.trim()) return undefined;
+  const ts = Date.parse(v);
+  return Number.isFinite(ts) ? ts : undefined;
+}
+
+function getSectionDurationMs(obj: Record<string, any>, section: string): number | undefined {
+  const node = obj[section];
+  if (!isObject(node)) return undefined;
+  const started = parseTimestampMs(node.started_at);
+  const finished = parseTimestampMs(node.finished_at);
+  if (started === undefined || finished === undefined || finished < started) return undefined;
+  return finished - started;
+}
+
 function getPathNumber(obj: unknown, keys: string[]): number | undefined {
   let cur: unknown = obj;
   for (const k of keys) {
@@ -349,13 +364,30 @@ function scoreJob(jobPath: string): { tasks: TaskResult[]; unknown: number } {
       const usage = extractTokenUsage(data);
       const duration = getPathNumber(data, ['duration_ms'])
         ?? ((getPathNumber(data, ['duration_s']) ?? getPathNumber(data, ['agent_result', 'duration_s'])) ?? 0) * 1000;
+      const executionDuration = (
+        (() => {
+          const started = parseTimestampMs(data.started_at);
+          const finished = parseTimestampMs(data.finished_at);
+          if (started === undefined || finished === undefined || finished < started) return undefined;
+          return finished - started;
+        })()
+      )
+        ?? getSectionDurationMs(data, 'agent_execution')
+        ?? getSectionDurationMs(data, 'verifier')
+        ?? Math.round(duration);
+      const exceptionInfo = isObject(data.exception_info) ? data.exception_info : null;
+      const exceptionType = typeof exceptionInfo?.exception_type === 'string'
+        ? exceptionInfo.exception_type
+        : undefined;
+      const taskErrorCode = exceptionType || undefined;
 
       if (typeof ok === 'boolean') {
         tasks.push({
           task_id: taskId || 'unknown',
           passed: ok,
           score: ok ? 1 : 0,
-          duration_ms: Math.round(duration),
+          duration_ms: executionDuration,
+          error_code: !ok ? taskErrorCode : undefined,
           token_usage: usage,
         });
       } else {
@@ -364,8 +396,8 @@ function scoreJob(jobPath: string): { tasks: TaskResult[]; unknown: number } {
           task_id: taskId || 'unknown',
           passed: false,
           score: 0,
-          duration_ms: Math.round(duration),
-          error_code: 'UNPARSEABLE_RESULT',
+          duration_ms: executionDuration,
+          error_code: taskErrorCode || 'UNPARSEABLE_RESULT',
           token_usage: usage,
         });
       }

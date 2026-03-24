@@ -199,7 +199,9 @@ function pickAction(
   outputText: string,
   tools: Array<{ name: string; schema?: Record<string, unknown> }>,
 ): StepOutput['action'] {
-  const preferred = ['final_answer', 'no_op', 'tool_call'];
+  const preferred = tools.length > 0
+    ? ['tool_call', 'final_answer', 'no_op']
+    : ['final_answer', 'no_op', 'tool_call'];
   const picked = preferred.find(a => allowedActions.includes(a)) || allowedActions[0] || 'no_op';
 
   if (picked === 'tool_call') {
@@ -221,6 +223,101 @@ function pickAction(
     type: picked,
     content: outputText,
   };
+}
+
+function renderHostedToolsPrompt(tools: Array<{ name: string; schema?: Record<string, unknown> }>): string {
+  if (!tools.length) return 'No tools available.';
+  return tools
+    .map(tool => JSON.stringify({
+      name: tool.name,
+      parameters: tool.schema || { type: 'object', additionalProperties: true },
+    }, null, 2))
+    .join('\n\n');
+}
+
+function renderHostedMessagesPrompt(messages: Array<{ role: string; content: string }>): string {
+  if (!messages.length) return 'No messages.';
+  return messages
+    .map(message => `[${message.role || 'unknown'}]\n${message.content || ''}`)
+    .join('\n\n');
+}
+
+function extractJsonCandidate(raw: string): string | null {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) return fenced[1].trim();
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first >= 0 && last > first) return text.slice(first, last + 1);
+  return null;
+}
+
+function buildHostedStepPrompt(input: StepInput): string {
+  return [
+    'You are controlling a hosted benchmark runtime.',
+    'You cannot directly execute shell or filesystem actions yourself in this turn.',
+    'You must choose the next action by returning exactly one JSON object and nothing else.',
+    'If the task is not complete, prefer a tool call over a final answer.',
+    'Allowed JSON formats:',
+    '{"type":"tool_call","name":"tool_name","arguments":{"arg":"value"}}',
+    '{"type":"final_answer","content":"short final response"}',
+    '{"type":"no_op","content":"short explanation"}',
+    '',
+    `Allowed action types: ${input.allowed_actions.join(', ') || 'none'}`,
+    '',
+    'Available tools:',
+    renderHostedToolsPrompt(input.observation.tools),
+    '',
+    'Conversation:',
+    renderHostedMessagesPrompt(input.observation.messages),
+  ].join('\n');
+}
+
+function parseHostedStepAction(
+  rawText: string,
+  allowedActions: string[],
+  tools: Array<{ name: string; schema?: Record<string, unknown> }>,
+): StepOutput['action'] {
+  const candidate = extractJsonCandidate(rawText);
+  if (!candidate) return pickAction(allowedActions, rawText, tools);
+
+  try {
+    const parsed = JSON.parse(candidate) as Record<string, unknown>;
+    const actionType = String(parsed.type || parsed.mode || '').trim().toLowerCase();
+
+    if (
+      actionType === 'tool_call'
+      && allowedActions.includes('tool_call')
+      && tools.length > 0
+    ) {
+      const name = String(parsed.name || '').trim();
+      const fallbackName = tools[0]?.name || 'unknown_tool';
+      const validName = tools.some(tool => tool.name === name) ? name : fallbackName;
+      const args = parsed.arguments && typeof parsed.arguments === 'object' && !Array.isArray(parsed.arguments)
+        ? parsed.arguments as Record<string, unknown>
+        : {};
+      return { type: 'tool_call', name: validName, arguments: args };
+    }
+
+    if (actionType === 'no_op' && allowedActions.includes('no_op')) {
+      return {
+        type: 'no_op',
+        content: typeof parsed.content === 'string' ? parsed.content : rawText,
+      };
+    }
+
+    if (allowedActions.includes('final_answer')) {
+      return {
+        type: 'final_answer',
+        content: typeof parsed.content === 'string' ? parsed.content : rawText,
+      };
+    }
+  } catch {
+    // fall through to heuristic fallback
+  }
+
+  return pickAction(allowedActions, rawText, tools);
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -519,16 +616,20 @@ export class KodeAgentAdapter implements CockpitAdapter {
       const templateRegistry = new this.sdk.AgentTemplateRegistry();
       const toolRegistry = new this.sdk.ToolRegistry();
       const sandboxFactory = new this.sdk.SandboxFactory();
-      this.registerBuiltinTools(toolRegistry as { register?: AnyFn });
+      const hostedStepMode = ctx.benchmark === 'tau' || ctx.benchmark === 'tb2';
+      if (!hostedStepMode) {
+        this.registerBuiltinTools(toolRegistry as { register?: AnyFn });
+      }
 
       templateRegistry.register({
         id: this.templateId,
-        systemPrompt:
-          'You are an evaluation agent. Follow user instructions exactly. Use the available filesystem and shell tools when needed. Keep output concise and deterministic.',
-        tools: [...KODE_BUILTIN_TOOL_IDS],
+        systemPrompt: hostedStepMode
+          ? 'You are an evaluation agent for a hosted benchmark. Return only the requested action object.'
+          : 'You are an evaluation agent. Follow user instructions exactly. Use the available filesystem and shell tools when needed. Keep output concise and deterministic.',
+        tools: hostedStepMode ? [] : [...KODE_BUILTIN_TOOL_IDS],
         runtime: {
           todo: {
-            enabled: true,
+            enabled: !hostedStepMode,
             reminderOnStart: true,
             remindIntervalSteps: 20,
           },
@@ -751,15 +852,20 @@ export class KodeAgentAdapter implements CockpitAdapter {
     const startedAt = Date.now();
     try {
       const workDirOverride = extractWorkDirOverride(input.observation.state, input.state);
-      const latestUserMessage = [...input.observation.messages]
-        .reverse()
-        .find(m => (m.role || '').toLowerCase() === 'user');
-      const prompt = latestUserMessage?.content
-        || input.observation.messages[input.observation.messages.length - 1]?.content
-        || '';
+      const prompt = input.observation.tools.length > 0
+        ? buildHostedStepPrompt(input)
+        : (
+            [...input.observation.messages]
+              .reverse()
+              .find(m => (m.role || '').toLowerCase() === 'user')?.content
+            || input.observation.messages[input.observation.messages.length - 1]?.content
+            || ''
+          );
       const result = await this.runPrompt(input.task_id, prompt, input.deadline_ms, workDirOverride);
       const text = result.text;
-      const action = pickAction(input.allowed_actions, text, input.observation.tools);
+      const action = input.observation.tools.length > 0
+        ? parseHostedStepAction(text, input.allowed_actions, input.observation.tools)
+        : pickAction(input.allowed_actions, text, input.observation.tools);
 
       return {
         action,
