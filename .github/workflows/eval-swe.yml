@@ -11,6 +11,14 @@ on:
         description: "Override SWE max instances (empty uses repo var EVAL_SWE_MAX_INSTANCES)"
         required: false
         default: ""
+      solve_timeout_ms:
+        description: "Override solve timeout in ms (empty uses repo var EVAL_SOLVE_TIMEOUT_MS, default CLI fallback)"
+        required: false
+        default: ""
+      verify_timeout_ms:
+        description: "Override official verify timeout in ms (empty uses repo var EVAL_VERIFY_TIMEOUT_MS, default CLI fallback)"
+        required: false
+        default: ""
   push:
     branches: [main]
     paths:
@@ -39,6 +47,8 @@ jobs:
       EVAL_RUNTIME_REF: ${{ vars.EVAL_RUNTIME_REF }}
       EVAL_AGENT_CORE: ${{ vars.EVAL_AGENT_CORE }}
       EVAL_SWE_MAX_INSTANCES: ${{ vars.EVAL_SWE_MAX_INSTANCES }}
+      EVAL_SOLVE_TIMEOUT_MS: ${{ vars.EVAL_SOLVE_TIMEOUT_MS }}
+      EVAL_VERIFY_TIMEOUT_MS: ${{ vars.EVAL_VERIFY_TIMEOUT_MS }}
       BENCHMARK_PROVIDER: ${{ vars.EVAL_PROVIDER }}
       BENCHMARK_MODEL: ${{ vars.EVAL_MODEL }}
       OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
@@ -82,13 +92,27 @@ jobs:
           RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-kode-agent-sdk}}"
           MODEL="${BENCHMARK_MODEL:-openai/glm-5}"
           MAX="${{ github.event.inputs.max_instances }}"
+          SOLVE_TIMEOUT="${{ github.event.inputs.solve_timeout_ms }}"
+          VERIFY_TIMEOUT="${{ github.event.inputs.verify_timeout_ms }}"
           if [[ -z "$MAX" ]]; then
             MAX="${EVAL_SWE_MAX_INSTANCES:-0}"
+          fi
+          if [[ -z "$SOLVE_TIMEOUT" ]]; then
+            SOLVE_TIMEOUT="${EVAL_SOLVE_TIMEOUT_MS:-}"
+          fi
+          if [[ -z "$VERIFY_TIMEOUT" ]]; then
+            VERIFY_TIMEOUT="${EVAL_VERIFY_TIMEOUT_MS:-}"
           fi
 
           CMD=(npm run run -- --benchmark=swe --agent="$RUNTIME_REF" --model="$MODEL" --swe-auto-generate=true --out=reports/swe-official.json)
           if [[ "$MAX" =~ ^[0-9]+$ ]] && [[ "$MAX" -gt 0 ]]; then
             CMD+=(--swe-max-instances="$MAX")
+          fi
+          if [[ "$SOLVE_TIMEOUT" =~ ^[0-9]+$ ]] && [[ "$SOLVE_TIMEOUT" -gt 0 ]]; then
+            CMD+=(--solve-timeout-ms="$SOLVE_TIMEOUT")
+          fi
+          if [[ "$VERIFY_TIMEOUT" =~ ^[0-9]+$ ]] && [[ "$VERIFY_TIMEOUT" -gt 0 ]]; then
+            CMD+=(--verify-timeout-ms="$VERIFY_TIMEOUT")
           fi
 
           echo "Running: ${CMD[*]}"
