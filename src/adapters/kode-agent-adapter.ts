@@ -12,6 +12,11 @@ type KodeSdkModule = {
   AgentTemplateRegistry: new () => { register: AnyFn };
   ToolRegistry: new () => unknown;
   SandboxFactory: new () => unknown;
+  builtin?: {
+    fs?: () => Array<{ name: string }>;
+    bash?: () => Array<{ name: string }>;
+    todo?: () => Array<{ name: string }>;
+  };
 };
 
 export interface KodeAgentAdapterOptions {
@@ -90,6 +95,20 @@ function extractWorkDirOverride(...sources: Array<Record<string, unknown> | null
   }
   return null;
 }
+
+const KODE_BUILTIN_TOOL_IDS = [
+  'fs_read',
+  'fs_write',
+  'fs_edit',
+  'fs_glob',
+  'fs_grep',
+  'fs_multi_edit',
+  'bash_run',
+  'bash_logs',
+  'bash_kill',
+  'todo_read',
+  'todo_write',
+] as const;
 
 function normalizeError(err: unknown): AgentError {
   const anyErr = err as any;
@@ -405,6 +424,23 @@ export class KodeAgentAdapter implements AgentAdapter {
     }
   }
 
+  private registerBuiltinTools(toolRegistry: { register?: AnyFn }): void {
+    if (!this.sdk?.builtin || typeof toolRegistry.register !== 'function') return;
+
+    const groups = [
+      this.sdk.builtin.fs?.() || [],
+      this.sdk.builtin.bash?.() || [],
+      this.sdk.builtin.todo?.() || [],
+    ];
+
+    for (const group of groups) {
+      for (const tool of group) {
+        if (!tool?.name) continue;
+        toolRegistry.register(tool.name, () => tool);
+      }
+    }
+  }
+
   async init(ctx: RunContext): Promise<void> {
     try {
       const { sdk, source } = this.loadSdkWithMode(ctx);
@@ -423,13 +459,19 @@ export class KodeAgentAdapter implements AgentAdapter {
       const templateRegistry = new this.sdk.AgentTemplateRegistry();
       const toolRegistry = new this.sdk.ToolRegistry();
       const sandboxFactory = new this.sdk.SandboxFactory();
+      this.registerBuiltinTools(toolRegistry as { register?: AnyFn });
 
       templateRegistry.register({
         id: this.templateId,
         systemPrompt:
-          'You are an evaluation agent. Follow user instructions exactly. Keep output concise and deterministic.',
-        tools: [],
+          'You are an evaluation agent. Follow user instructions exactly. Use the available filesystem and shell tools when needed. Keep output concise and deterministic.',
+        tools: [...KODE_BUILTIN_TOOL_IDS],
         runtime: {
+          todo: {
+            enabled: true,
+            reminderOnStart: true,
+            remindIntervalSteps: 20,
+          },
           metadata: {
             exposeThinking: false,
           },
