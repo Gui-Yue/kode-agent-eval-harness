@@ -103,8 +103,9 @@ jobs:
           set -euo pipefail
           HARBOR_VERSION="${EVAL_TB2_HARBOR_VERSION:-0.1.45}"
           LITELLM_VERSION="${EVAL_TB2_LITELLM_VERSION:-1.80.8}"
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install "litellm==${LITELLM_VERSION}" "harbor==${HARBOR_VERSION}"
+          PIP_INDEX_URL="https://pypi.org/simple"
+          python -m pip install --index-url "$PIP_INDEX_URL" --upgrade pip setuptools wheel
+          python -m pip install --index-url "$PIP_INDEX_URL" "litellm==${LITELLM_VERSION}" "harbor==${HARBOR_VERSION}"
           harbor --version
 
       - name: Run TB2 official evaluation
