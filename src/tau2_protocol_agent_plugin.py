@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -17,6 +18,11 @@ from tau2.registry import registry
 
 _REQUEST_THROTTLE_LOCK = threading.Lock()
 _LAST_REQUEST_TS = 0.0
+
+
+def _log(message: str) -> None:
+    sys.stderr.write(f'[tau2-bridge] {message}\n')
+    sys.stderr.flush()
 
 
 def _repo_root() -> Path:
@@ -98,19 +104,22 @@ def _invoke_harness_bridge(*, model: str | None, tools: list[Any], messages: lis
         f"--agent={os.getenv('EVAL_HARNESS_AGENT_REF', 'mock')}",
         f"--model={os.getenv('EVAL_HARNESS_MODEL', model or 'openai/glm-5')}",
     ]
+    _log(f'invoke model={os.getenv("EVAL_HARNESS_MODEL", model or "openai/glm-5")} messages={len(messages)} tools={len(tools)} timeout_ms={timeout_ms}')
 
     proc = subprocess.run(
         cmd,
         input=json.dumps(payload),
         text=True,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=None,
         timeout=max(1, timeout_ms) / 1000.0,
         check=False,
         cwd=str(_repo_root()),
     )
     if proc.returncode != 0:
-        msg = proc.stderr.strip() or proc.stdout.strip() or f'bridge exit={proc.returncode}'
+        msg = proc.stdout.strip() or f'bridge exit={proc.returncode}'
         raise RuntimeError(msg)
+    _log('bridge response received')
     return json.loads(proc.stdout)
 
 

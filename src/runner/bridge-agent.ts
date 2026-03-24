@@ -12,6 +12,10 @@ export interface BridgeAgentOptions {
   deadlineMs: number;
 }
 
+function logBridge(message: string): void {
+  process.stderr.write(`[bridge-agent] ${message}\n`);
+}
+
 function getOption(options: Record<string, string>, ...keys: string[]): string | undefined {
   for (const key of keys) {
     const value = options[key];
@@ -104,6 +108,7 @@ export function parseBridgeAgentOptions(options: Record<string, string>): Bridge
 }
 
 export async function bridgeAgentCommand(opts: BridgeAgentOptions): Promise<void> {
+  logBridge(`start mode=${opts.mode} agent=${opts.agent} task=${opts.taskId} turn=${opts.turnId} deadline_ms=${opts.deadlineMs}`);
   const raw = await readStdin();
   const payload = raw.trim() ? JSON.parse(raw) as Record<string, unknown> : {};
   const { adapter, manifest } = createAgentRuntime(opts.agent);
@@ -144,11 +149,15 @@ export async function bridgeAgentCommand(opts: BridgeAgentOptions): Promise<void
       cockpit_capabilities: cockpitCaps.map(cap => cap.kind),
     },
   });
+  logBridge(`adapter initialized manifest=${manifest.manifest.name}`);
 
   try {
+    logBridge(`solve start task=${input.task_id} turn=${opts.turnId}`);
     const output = await solveConversationTurn(adapter, input);
+    logBridge(`solve complete task=${input.task_id} turn=${opts.turnId} action=${output.action.type}`);
     process.stdout.write(JSON.stringify(formatAction(output)));
   } finally {
+    logBridge(`adapter closing task=${input.task_id} turn=${opts.turnId}`);
     await adapter.close();
   }
 }

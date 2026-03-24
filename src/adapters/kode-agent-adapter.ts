@@ -57,6 +57,10 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+function logAdapter(adapterId: string, message: string): void {
+  process.stderr.write(`[adapter:${adapterId}] ${message}\n`);
+}
+
 function resolveModel(modelRaw: string): { provider: string; model: string } {
   const v = (modelRaw || '').trim();
   if (!v) return { provider: 'openai', model: 'gpt-4o-mini' };
@@ -400,9 +404,7 @@ export class KodeAgentAdapter implements CockpitAdapter {
     );
 
     const installArgs = ['install', '--no-audit', '--no-fund', '--omit=dev', '--no-package-lock', pkgSpec];
-    console.log(
-      `[adapter:${this.adapterId}] installing ${pkgSpec} with ${npmCmd} (timeout=${timeoutMs}ms)`,
-    );
+    logAdapter(this.adapterId, `installing ${pkgSpec} with ${npmCmd} (timeout=${timeoutMs}ms)`);
 
     const install = spawnSync(
       npmCmd,
@@ -450,8 +452,12 @@ export class KodeAgentAdapter implements CockpitAdapter {
     }
 
     if (this.autoInstall) {
-      const runtimeEntry = this.installRuntimeSdk(ctx.run_id);
-      return loadKodeSdkFromEntries([runtimeEntry, ...this.resolveDefaultEntries()]);
+      try {
+        return loadKodeSdkFromEntries(this.resolveDefaultEntries());
+      } catch {
+        const runtimeEntry = this.installRuntimeSdk(ctx.run_id);
+        return loadKodeSdkFromEntries([runtimeEntry, ...this.resolveDefaultEntries()]);
+      }
     }
 
     return loadKodeSdkFromEntries(this.resolveDefaultEntries());
@@ -469,7 +475,7 @@ export class KodeAgentAdapter implements CockpitAdapter {
         if (probe.endsWith('/v4/v1')) {
           utils.normalizeOpenAIBaseUrl = normalizeOpenAIBaseUrlCompat;
           this.patchedSdkOpenAIBaseUrl = true;
-          console.log(`[adapter:${this.adapterId}] patched SDK OpenAI base URL normalizer for non-v1 endpoints`);
+          logAdapter(this.adapterId, 'patched SDK OpenAI base URL normalizer for non-v1 endpoints');
         }
         return;
       } catch {
@@ -540,7 +546,7 @@ export class KodeAgentAdapter implements CockpitAdapter {
       };
 
       if (this.autoInstall && this.runtimePackageSpec) {
-        console.log(`[adapter:${this.adapterId}] auto-installed ${this.runtimePackageSpec}`);
+        logAdapter(this.adapterId, `auto-installed ${this.runtimePackageSpec}`);
       }
 
       this.initialized = true;
@@ -809,7 +815,7 @@ export class KodeAgentAdapter implements CockpitAdapter {
     }
 
     if (this.autoInstall && this.runtimeInstallDir) {
-      console.log(`[adapter:${this.adapterId}] cleaning runtime SDK directory: ${this.runtimeInstallDir}`);
+      logAdapter(this.adapterId, `cleaning runtime SDK directory: ${this.runtimeInstallDir}`);
     }
     this.cleanupRuntimeInstallDir();
 

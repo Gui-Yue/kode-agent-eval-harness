@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,11 @@ class ProtocolHarnessAgent(BaseAgent):
         return final_content
 
 
+def _log(message: str) -> None:
+    sys.stderr.write(f'[tb2-bridge] {message}\n')
+    sys.stderr.flush()
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
@@ -133,15 +139,17 @@ async def _invoke_bridge(*, payload: dict[str, Any], turn: int, timeout_ms: int)
         *cmd,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stderr=None,
         cwd=str(_repo_root()),
     )
-    stdout, stderr = await asyncio.wait_for(
+    _log(f'invoke turn={turn} timeout_ms={timeout_ms}')
+    stdout, _ = await asyncio.wait_for(
         proc.communicate(json.dumps(payload).encode('utf-8')),
         timeout=max(1.0, timeout_ms / 1000.0),
     )
     if proc.returncode != 0:
-        raise RuntimeError((stderr or stdout).decode('utf-8', errors='ignore').strip() or f'bridge exit={proc.returncode}')
+        raise RuntimeError(stdout.decode('utf-8', errors='ignore').strip() or f'bridge exit={proc.returncode}')
+    _log(f'bridge response received turn={turn}')
     return json.loads(stdout.decode('utf-8'))
 
 
