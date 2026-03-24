@@ -243,6 +243,73 @@ function normalizePatchHeaders(text: string): string {
     .replace(/^\+\+\+ (?!b\/|\/dev\/null)(\S.*)$/gm, '+++ b/$1');
 }
 
+function formatHunkCount(count: number): string {
+  return count === 1 ? '' : `,${count}`;
+}
+
+function recountUnifiedDiffHunkHeaders(text: string): string {
+  const lines = text.split('\n');
+  const out: string[] = [];
+  const hunkHeader = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const match = hunkHeader.exec(line);
+    if (!match) {
+      out.push(line);
+      i += 1;
+      continue;
+    }
+
+    const oldStart = Number(match[1]);
+    const newStart = Number(match[3]);
+    const suffix = match[5] || '';
+
+    let oldCount = 0;
+    let newCount = 0;
+    let j = i + 1;
+
+    while (j < lines.length) {
+      const bodyLine = lines[j];
+      if (
+        bodyLine.startsWith('@@ ') ||
+        bodyLine === '@@' ||
+        bodyLine.startsWith('diff --git ') ||
+        bodyLine.startsWith('--- ') ||
+        bodyLine.startsWith('Index: ')
+      ) {
+        break;
+      }
+
+      if (bodyLine.startsWith('-')) {
+        oldCount += 1;
+      } else if (bodyLine.startsWith('+')) {
+        newCount += 1;
+      } else if (bodyLine.startsWith(' ')) {
+        oldCount += 1;
+        newCount += 1;
+      } else if (bodyLine.startsWith('\\ No newline at end of file')) {
+        // metadata line, does not affect hunk counts
+      } else if (bodyLine.length === 0) {
+        // Preserve malformed empty body lines without changing counts.
+      } else {
+        // Keep unknown lines unchanged; downstream validation decides if the patch is still usable.
+      }
+
+      j += 1;
+    }
+
+    out.push(`@@ -${oldStart}${formatHunkCount(oldCount)} +${newStart}${formatHunkCount(newCount)} @@${suffix}`);
+    for (let k = i + 1; k < j; k += 1) {
+      out.push(lines[k]);
+    }
+    i = j;
+  }
+
+  return out.join('\n');
+}
+
 function isLikelyPatch(text: string): boolean {
   if (!text.trim()) return false;
 
@@ -259,7 +326,7 @@ function extractPatchText(raw: string): string {
   if (patchStart < 0) return '';
 
   const sliced = candidate.slice(patchStart).trim();
-  const normalized = normalizePatchHeaders(sliced);
+  const normalized = recountUnifiedDiffHunkHeaders(normalizePatchHeaders(sliced));
   if (!isLikelyPatch(normalized)) return '';
 
   return normalized.endsWith('\n') ? normalized : `${normalized}\n`;
