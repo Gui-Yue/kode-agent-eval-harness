@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
 import { createAgentRuntime } from '../agents/runtime';
-import { runCockpitTurn, runWorkspaceTask } from '../cockpit/runtime';
+import { runCockpitTurn, solveTaskInWorkspace } from '../cockpit/runtime';
 import type { BenchmarkId, TaskResult, TokenUsage } from '../types';
 
 interface SWEInstance {
@@ -27,7 +27,7 @@ export interface SWEGenerateOptions {
   adapter: string;
   model: string;
   seed: number;
-  timeoutMs: number;
+  solveTimeoutMs: number;
   maxInstances?: number;
   dockerProxy?: string;
   imageNamespace?: string;
@@ -45,7 +45,7 @@ interface SWEAgentRun {
   usageTotal: number;
   error: import('../types').AgentError | null;
   workspaceStatus?: string;
-  workspaceTrace?: import('../cockpit/contracts').WorkspaceTaskTrace;
+  workspaceTrace?: import('../cockpit/contracts').SolveTaskInWorkspaceTrace;
 }
 
 function readJson<T>(p: string): T {
@@ -134,7 +134,7 @@ async function runSWEAgentOnce(
   workspaceDir: string | null,
 ): Promise<SWEAgentRun> {
   if (workspaceDir) {
-    const workspace = await runWorkspaceTask(adapter, {
+    const workspace = await solveTaskInWorkspace(adapter, {
       task_id: inst.instance_id,
       prompt,
       deadline_ms: deadlineMs,
@@ -574,7 +574,7 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
     benchmark: 'swe' as BenchmarkId,
     dataset: 'swe-bench-verified',
     seed: opts.seed,
-    timeout_ms: opts.timeoutMs,
+    timeout_ms: opts.solveTimeoutMs,
     model: opts.model,
     agent_config: {},
   });
@@ -632,43 +632,43 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
           }
         }
 
-        const output = await runSWEAgentOnce(
+        const solved = await runSWEAgentOnce(
           adapter,
           inst,
           prompt,
           runtimeState,
-          opts.timeoutMs,
+          opts.solveTimeoutMs,
           workspaceDir,
         );
 
-        if (output.error) {
+        if (solved.error) {
           const duration = Date.now() - t0;
-          const tokenTotal = output.usageTotal || undefined;
+          const tokenTotal = solved.usageTotal || undefined;
           tasks.push({
             task_id: inst.instance_id,
             passed: false,
             score: 0,
             duration_ms: duration,
-            error_code: `ADAPTER_${output.error.code}`,
+            error_code: `ADAPTER_${solved.error.code}`,
             token_usage: toTokenUsage(tokenTotal),
           });
           console.log(
-            `[swe-gen] ${inst.instance_id}: adapter error (${output.error.code}: ${output.error.message})`,
+            `[swe-gen] ${inst.instance_id}: adapter error (${solved.error.code}: ${solved.error.message})`,
           );
           continue;
         }
-        if (workspaceDir && output.workspaceTrace) {
+        if (workspaceDir && solved.workspaceTrace) {
           console.log(
-            `[swe-gen] ${inst.instance_id}: workspace trace tools=${output.workspaceTrace.tool_calls} tool_errors=${output.workspaceTrace.tool_errors} approvals=${output.workspaceTrace.permission_requests} status=${output.workspaceTrace.final_status}`,
+            `[swe-gen] ${inst.instance_id}: workspace solve trace tools=${solved.workspaceTrace.tool_calls} tool_errors=${solved.workspaceTrace.tool_errors} approvals=${solved.workspaceTrace.permission_requests} status=${solved.workspaceTrace.final_status}`,
           );
         }
 
-        let rawAnswer = output.text || '';
+        let rawAnswer = solved.text || '';
         let patch = workspaceDir ? collectWorkspacePatch(workspaceDir) : '';
         if (!patch) {
           patch = extractPatchText(rawAnswer);
         }
-        let tokenTotal = output.usageTotal ?? 0;
+        let tokenTotal = solved.usageTotal ?? 0;
         let repairAttempted = false;
 
         if (!patch && rawAnswer.trim()) {
@@ -684,13 +684,13 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
             inst,
             repairPrompt,
             runtimeState,
-            opts.timeoutMs,
+            opts.solveTimeoutMs,
             workspaceDir,
           );
 
           if (workspaceDir && repair.workspaceTrace) {
             console.log(
-              `[swe-gen] ${inst.instance_id}: repair trace tools=${repair.workspaceTrace.tool_calls} tool_errors=${repair.workspaceTrace.tool_errors} approvals=${repair.workspaceTrace.permission_requests} status=${repair.workspaceTrace.final_status}`,
+              `[swe-gen] ${inst.instance_id}: repair solve trace tools=${repair.workspaceTrace.tool_calls} tool_errors=${repair.workspaceTrace.tool_errors} approvals=${repair.workspaceTrace.permission_requests} status=${repair.workspaceTrace.final_status}`,
             );
           }
 

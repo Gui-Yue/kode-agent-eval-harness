@@ -12,7 +12,7 @@ export interface CockpitCapability {
   description?: string;
 }
 
-export interface WorkspaceTaskInput {
+export interface SolveTaskInWorkspaceInput {
   task_id: string;
   prompt: string;
   deadline_ms: number;
@@ -20,17 +20,36 @@ export interface WorkspaceTaskInput {
   workdir: string;
 }
 
-export interface WorkspaceTaskTrace {
+export interface SolveTaskInWorkspaceTrace {
   tool_calls: number;
   tool_errors: number;
   permission_requests: number;
   final_status: string;
 }
 
-export interface WorkspaceTaskResult {
+export interface SolveTaskInWorkspaceResult {
   status: 'completed' | 'paused' | 'message_only';
   text: string;
   usage?: TokenUsage;
   error?: AgentError | null;
-  trace?: WorkspaceTaskTrace;
+  trace?: SolveTaskInWorkspaceTrace;
 }
+
+export interface CandidateSolution {
+  kind: 'patch';
+  patch: string;
+  summary?: string;
+  usage?: TokenUsage;
+  metadata?: Record<string, unknown>;
+}
+
+export interface OfficialVerificationResult {
+  passed: boolean;
+  score: number;
+  errorCode?: string;
+  error?: string;
+}
+
+export type WorkspaceTaskInput = SolveTaskInWorkspaceInput;
+export type WorkspaceTaskTrace = SolveTaskInWorkspaceTrace;
+export type WorkspaceTaskResult = SolveTaskInWorkspaceResult;

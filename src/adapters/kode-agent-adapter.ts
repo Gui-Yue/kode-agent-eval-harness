@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { CockpitAdapter } from './interface';
-import type { CockpitCapability, WorkspaceTaskInput, WorkspaceTaskResult } from '../cockpit/contracts';
+import type {
+  CockpitCapability,
+  SolveTaskInWorkspaceInput,
+  SolveTaskInWorkspaceResult,
+  WorkspaceTaskInput,
+  WorkspaceTaskResult,
+} from '../cockpit/contracts';
 import type { AgentError, AgentMetadata, RunContext, StepInput, StepOutput } from '../types';
 
 type AnyFn = (...args: any[]) => any;
@@ -616,7 +622,7 @@ export class KodeAgentAdapter implements CockpitAdapter {
     prompt: string,
     deadlineMs: number,
     workDirOverride?: string | null,
-  ): Promise<{ text: string; status: string; usage: StepOutput['usage']; trace: WorkspaceTaskResult['trace'] }> {
+  ): Promise<{ text: string; status: string; usage: StepOutput['usage']; trace: SolveTaskInWorkspaceResult['trace'] }> {
     const startedAt = Date.now();
     const agent = await this.getOrCreateTaskAgent(taskId, workDirOverride);
 
@@ -699,7 +705,7 @@ export class KodeAgentAdapter implements CockpitAdapter {
     };
   }
 
-  async runWorkspaceTask(input: WorkspaceTaskInput): Promise<WorkspaceTaskResult> {
+  async solveTaskInWorkspace(input: SolveTaskInWorkspaceInput): Promise<SolveTaskInWorkspaceResult> {
     try {
       const result = await this.runPrompt(input.task_id, input.prompt, input.deadline_ms, input.workdir);
       return {
@@ -729,6 +735,10 @@ export class KodeAgentAdapter implements CockpitAdapter {
         error: normalizeError(err),
       };
     }
+  }
+
+  async runWorkspaceTask(input: WorkspaceTaskInput): Promise<WorkspaceTaskResult> {
+    return this.solveTaskInWorkspace(input);
   }
 
   async step(input: StepInput): Promise<StepOutput> {

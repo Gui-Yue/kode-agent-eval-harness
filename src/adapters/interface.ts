@@ -1,5 +1,11 @@
 import type { AgentMetadata, RunContext, StepInput, StepOutput } from '../types';
-import type { CockpitCapability, WorkspaceTaskInput, WorkspaceTaskResult } from '../cockpit/contracts';
+import type {
+  CockpitCapability,
+  SolveTaskInWorkspaceInput,
+  SolveTaskInWorkspaceResult,
+  WorkspaceTaskInput,
+  WorkspaceTaskResult,
+} from '../cockpit/contracts';
 
 export interface AgentAdapter {
   metadata(): Promise<AgentMetadata> | AgentMetadata;
@@ -10,5 +16,6 @@ export interface AgentAdapter {
 
 export interface CockpitAdapter extends AgentAdapter {
   describeCockpitCapabilities?(): CockpitCapability[];
+  solveTaskInWorkspace?(input: SolveTaskInWorkspaceInput): Promise<SolveTaskInWorkspaceResult>;
   runWorkspaceTask?(input: WorkspaceTaskInput): Promise<WorkspaceTaskResult>;
 }

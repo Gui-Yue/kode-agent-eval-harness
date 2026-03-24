@@ -84,6 +84,14 @@ Each vehicle is resolved from:
 
 The manifest identifies transport and benchmark support, but the behavioral contract is the cockpit contract.
 
+For `stdio` transport, the JSON-RPC surface is:
+
+- `agent.handshake`
+- `run.init`
+- `run.step`
+- `run.solve_task_in_workspace`
+- `run.close`
+
 ## Cockpit Contract
 
 The existing `init / step / close` path remains as the lowest common denominator for turn-based runners.
@@ -108,7 +116,9 @@ The vehicle returns:
 - usage
 - terminal / error state
 
-### 2. Workspace Task
+For stdio vehicles, this maps to `run.step`.
+
+### 2. Solve Task In Workspace
 
 Used by SWE and any future repo-edit benchmark.
 
@@ -119,14 +129,16 @@ The cockpit provides:
 - benchmark state
 - deadline
 
-The vehicle is expected to operate directly in the workspace and return:
+The vehicle is expected to operate directly in the workspace through `solveTaskInWorkspace(...)` and return:
 
 - final text summary
 - usage
 - trace metadata
 - completion status
 
-The score still comes from the official verifier via git diff -> official evaluation.
+For stdio vehicles, this maps to `run.solve_task_in_workspace`.
+
+The score then comes from a separate interface, `scoreCandidateWithOfficialVerifier(...)`.
 
 ## Why This Is More Fundamental Than Patch Generation
 
@@ -146,15 +158,18 @@ That is much closer to the "vehicle quality" we actually want.
 
 ### SWE
 
-SWE should use the workspace-task cockpit mode.
+SWE should use:
+
+- `solveTaskInWorkspace(...)` for solving
+- `scoreCandidateWithOfficialVerifier(...)` for scoring
 
 Flow:
 
 1. materialize `/testbed` from official SWE image into a local temp workspace
-2. call the vehicle through `runWorkspaceTask`
+2. call the vehicle through `solveTaskInWorkspace`
 3. collect git diff from the workspace
 4. fall back to patch text extraction only as compatibility fallback
-5. score with official SWE evaluation
+5. score with `scoreCandidateWithOfficialVerifier`
 
 ### TAU2
 
@@ -185,8 +200,8 @@ This phase introduces the cockpit vocabulary into the codebase and starts routin
 
 1. cockpit contracts are defined explicitly in TypeScript
 2. adapters can advertise cockpit capabilities
-3. adapters can optionally implement `runWorkspaceTask`
-4. SWE prefers `runWorkspaceTask`
+3. adapters can optionally implement `solveTaskInWorkspace`
+4. SWE prefers `solveTaskInWorkspace`
 5. TAU / TB2 bridge code runs through the cockpit turn helper instead of calling adapters directly
 
 `kode-agent-sdk` is the first default vehicle implementation for this contract.
@@ -200,14 +215,14 @@ This phase introduces the cockpit vocabulary into the codebase and starts routin
 
 ## Known Gaps
 
-1. The stdio RPC schema still exposes only the turn-based surface; workspace-task RPC has not been added yet.
-2. TAU2 / TB2 still mount hosted benchmark tools through per-turn bridge processes rather than a long-lived cockpit daemon.
+1. TAU2 / TB2 still mount hosted benchmark tools through per-turn bridge processes rather than a long-lived cockpit daemon.
+2. External stdio vehicles still need a reference server implementation to make adoption easy.
 3. Capability descriptors are informational today; benchmark-side negotiation is still minimal.
 4. More trace and observability data should be persisted for debugging vehicle quality regressions.
 
 ## Immediate Next Steps
 
-1. extend stdio runtime protocol with workspace-task support
+1. add a reusable stdio server example that implements `run.solve_task_in_workspace`
 2. add capability negotiation / validation commands
 3. persist cockpit traces into artifacts for GH Actions debugging
 4. add more default vehicles beyond `kode-agent-sdk`

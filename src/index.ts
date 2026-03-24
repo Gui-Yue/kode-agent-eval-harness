@@ -19,6 +19,7 @@ function printHelp(): void {
   console.log('  run --benchmark=mock --agent=mock --out=reports/mock.json');
   console.log('  run --benchmark=mock --agent=kode-agent-sdk --model=openai/glm-5 --out=reports/mock-kode-agent-sdk.json');
   console.log('  run --benchmark=swe --agent=kode-agent-sdk --model=openai/glm-5 --swe-generate-only=true --swe-max-instances=2');
+  console.log('  run --benchmark=swe --agent=kode-agent-sdk --solve-timeout-ms=900000 --verify-timeout-ms=900000');
   console.log('  run --benchmark=swe --agent=mock --swe-auto-generate=true --swe-max-instances=2 --out=reports/swe-run.json');
   console.log('  run --benchmark=tb2 --model=openai/glm-5 --tb2-agent=oracle --tb2-runner=uvx');
   console.log('  run --benchmark=tau --provider=openai --model=glm-5 --tau-domain=airline --num-trials=1');

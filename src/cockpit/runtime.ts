@@ -1,7 +1,11 @@
 import type { CockpitAdapter } from '../adapters/interface';
 import type { AgentAdapter } from '../adapters/interface';
 import type { StepInput, StepOutput } from '../types';
-import type { CockpitCapability, WorkspaceTaskInput, WorkspaceTaskResult } from './contracts';
+import type {
+  CockpitCapability,
+  SolveTaskInWorkspaceInput,
+  SolveTaskInWorkspaceResult,
+} from './contracts';
 
 export function getCockpitCapabilities(adapter: AgentAdapter): CockpitCapability[] {
   const cockpit = adapter as CockpitAdapter;
@@ -15,14 +19,24 @@ export async function runCockpitTurn(adapter: AgentAdapter, input: StepInput): P
   return adapter.step(input);
 }
 
-export function supportsWorkspaceTasks(adapter: AgentAdapter): adapter is CockpitAdapter & Required<Pick<CockpitAdapter, 'runWorkspaceTask'>> {
-  return typeof (adapter as CockpitAdapter).runWorkspaceTask === 'function';
+export function supportsWorkspaceTaskSolving(
+  adapter: AgentAdapter,
+): adapter is CockpitAdapter & (Required<Pick<CockpitAdapter, 'solveTaskInWorkspace'>> | Required<Pick<CockpitAdapter, 'runWorkspaceTask'>>) {
+  const cockpit = adapter as CockpitAdapter;
+  return typeof cockpit.solveTaskInWorkspace === 'function' || typeof cockpit.runWorkspaceTask === 'function';
 }
 
-export async function runWorkspaceTask(
+export async function solveTaskInWorkspace(
   adapter: AgentAdapter,
-  input: WorkspaceTaskInput,
-): Promise<WorkspaceTaskResult | null> {
-  if (!supportsWorkspaceTasks(adapter)) return null;
-  return adapter.runWorkspaceTask(input);
+  input: SolveTaskInWorkspaceInput,
+): Promise<SolveTaskInWorkspaceResult | null> {
+  if (!supportsWorkspaceTaskSolving(adapter)) return null;
+  const cockpit = adapter as CockpitAdapter;
+  if (typeof cockpit.solveTaskInWorkspace === 'function') {
+    return cockpit.solveTaskInWorkspace(input);
+  }
+  if (typeof cockpit.runWorkspaceTask === 'function') {
+    return cockpit.runWorkspaceTask(input);
+  }
+  return null;
 }

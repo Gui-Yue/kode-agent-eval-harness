@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
 import type { TaskResult } from '../types';
+import type { CandidateSolution, OfficialVerificationResult } from '../cockpit/contracts';
 
 interface SWEInstance {
   instance_id: string;
@@ -23,6 +24,7 @@ export interface SWEOfficialOptions {
   casesFile: string;
   predictionsFile: string;
   workDir: string;
+  verifyTimeoutMs?: number;
   dockerProxy?: string;
   maxInstances?: number;
   imageNamespace?: string;
@@ -98,6 +100,7 @@ function evaluateWithDocker(
   instance: SWEInstance,
   patch: string,
   workDir: string,
+  verifyTimeoutMs?: number,
   imageNamespace?: string,
   proxyUrl?: string,
 ): { passed: boolean; error?: string; errorCode?: string } {
@@ -152,7 +155,7 @@ function evaluateWithDocker(
     'bash', '/patches/evaluate.sh',
   ], {
     stdio: ['ignore', 'inherit', 'inherit'],
-    timeout: 900000,
+    timeout: verifyTimeoutMs && verifyTimeoutMs > 0 ? verifyTimeoutMs : 900000,
   });
 
   if (run.status === 0) return { passed: true };
@@ -164,6 +167,32 @@ function evaluateWithDocker(
     return { passed: false, errorCode: 'TEST_FAILED', error: 'test command failed' };
   }
   return { passed: false, errorCode: 'DOCKER_RUN_FAILED', error: `docker run exit code ${run.status}` };
+}
+
+export interface SWEOfficialVerifierInput {
+  instance: SWEInstance;
+  candidate: CandidateSolution;
+  workDir: string;
+  verifyTimeoutMs?: number;
+  imageNamespace?: string;
+  dockerProxy?: string;
+}
+
+export function scoreCandidateWithOfficialVerifier(input: SWEOfficialVerifierInput): OfficialVerificationResult {
+  const result = evaluateWithDocker(
+    input.instance,
+    input.candidate.patch,
+    input.workDir,
+    input.verifyTimeoutMs,
+    input.imageNamespace,
+    input.dockerProxy,
+  );
+  return {
+    passed: result.passed,
+    score: result.passed ? 1 : 0,
+    errorCode: result.errorCode,
+    error: result.error,
+  };
 }
 
 function cleanupDir(workDir: string): void {
@@ -255,7 +284,26 @@ export function runSWEOfficialBenchmark(opts: SWEOfficialOptions): SWEOfficialRe
     const instanceWorkDir = path.join(path.resolve(process.cwd(), opts.workDir), `${inst.instance_id}-${Date.now()}`);
     console.log(`[swe:${inst.instance_id}] evaluating`);
     try {
-      const evalResult = evaluateWithDocker(inst, pred.patch, instanceWorkDir, opts.imageNamespace, opts.dockerProxy);
+      const evalResult = scoreCandidateWithOfficialVerifier({
+        instance: inst,
+        candidate: {
+          kind: 'patch',
+          patch: pred.patch,
+          usage: typeof pred.tokens === 'number'
+            ? {
+                input_tokens: null,
+                output_tokens: null,
+                cache_tokens: null,
+                total_tokens: pred.tokens,
+                latency_ms: null,
+              }
+            : undefined,
+        },
+        workDir: instanceWorkDir,
+        verifyTimeoutMs: opts.verifyTimeoutMs,
+        imageNamespace: opts.imageNamespace,
+        dockerProxy: opts.dockerProxy,
+      });
       const duration = Date.now() - start;
       if (evalResult.passed) {
         console.log(`[swe:${inst.instance_id}] PASS (${duration}ms)`);
@@ -265,7 +313,7 @@ export function runSWEOfficialBenchmark(opts: SWEOfficialOptions): SWEOfficialRe
       tasks.push({
         task_id: inst.instance_id,
         passed: evalResult.passed,
-        score: evalResult.passed ? 1 : 0,
+        score: evalResult.score,
         duration_ms: duration,
         error_code: evalResult.passed ? undefined : (evalResult.errorCode || 'TEST_FAILED'),
         token_usage: typeof pred.tokens === 'number'

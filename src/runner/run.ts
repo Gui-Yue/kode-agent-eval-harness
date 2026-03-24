@@ -19,6 +19,8 @@ export interface RunOptions {
   out: string;
   seed: number;
   timeoutMs: number;
+  solveTimeoutMs: number;
+  verifyTimeoutMs: number;
 
   provider: string;
 
@@ -107,6 +109,16 @@ export function parseRunOptions(options: Record<string, string>): RunOptions {
   const runtimeRef = getOption(options, 'agent')
     || (benchmark === 'mock' ? 'mock' : 'kode-agent-sdk');
 
+  const timeoutMs = asNumber(getOption(options, 'timeout_ms', 'timeout-ms'), 120000);
+  const solveTimeoutMs = asNumber(
+    getOption(options, 'solve-timeout-ms', 'solve_timeout_ms', 'agent-timeout-ms', 'agent_timeout_ms'),
+    timeoutMs,
+  );
+  const verifyTimeoutMs = asNumber(
+    getOption(options, 'verify-timeout-ms', 'verify_timeout_ms', 'eval-timeout-ms', 'eval_timeout_ms'),
+    benchmark === 'swe' ? 900000 : timeoutMs,
+  );
+
   return {
     benchmark,
     agent: runtimeRef,
@@ -114,7 +126,9 @@ export function parseRunOptions(options: Record<string, string>): RunOptions {
     model,
     out: getOption(options, 'out', 'output') || 'reports/run-report.json',
     seed: asNumber(getOption(options, 'seed'), 42),
-    timeoutMs: asNumber(getOption(options, 'timeout_ms', 'timeout-ms'), 120000),
+    timeoutMs,
+    solveTimeoutMs,
+    verifyTimeoutMs,
 
     provider,
 
@@ -189,7 +203,7 @@ async function runMockBenchmark(opts: RunOptions): Promise<{ dataset: string; ta
     benchmark: 'mock',
     dataset: driver.dataset,
     seed: opts.seed,
-    timeout_ms: opts.timeoutMs,
+    timeout_ms: opts.solveTimeoutMs,
     model: opts.model,
     agent_config: {},
   });
@@ -295,7 +309,7 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
           adapter: opts.runtimeRef || opts.agent,
           model: opts.model,
           seed: opts.seed,
-          timeoutMs: opts.timeoutMs,
+          solveTimeoutMs: opts.solveTimeoutMs,
           imageNamespace: opts.sweImageNamespace,
           dockerProxy: process.env.BENCHMARK_DOCKER_PROXY,
           maxInstances: opts.sweMaxInstances,
@@ -314,6 +328,7 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
         casesFile: opts.sweCasesFile,
         predictionsFile,
         workDir: opts.sweWorkDir,
+        verifyTimeoutMs: opts.verifyTimeoutMs,
         imageNamespace: opts.sweImageNamespace,
         maxInstances: opts.sweMaxInstances,
         dockerProxy: process.env.BENCHMARK_DOCKER_PROXY,
@@ -378,7 +393,7 @@ export async function runCommand(opts: RunOptions): Promise<UnifiedRunReport> {
     model: opts.model,
     commit_sha,
     seed: opts.seed,
-    timeout_ms: opts.timeoutMs,
+    timeout_ms: opts.solveTimeoutMs,
     started_at: started.toISOString(),
     finished_at: new Date().toISOString(),
     tasks: executed.tasks,

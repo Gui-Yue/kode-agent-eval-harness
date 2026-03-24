@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
-import type { AgentAdapter } from '../adapters/interface';
+import type { CockpitAdapter } from '../adapters/interface';
+import type { CockpitCapability, SolveTaskInWorkspaceInput, SolveTaskInWorkspaceResult } from '../cockpit/contracts';
 import type { AgentMetadata, RunContext, StepInput, StepOutput } from '../types';
 import type { ResolvedAgentManifest, StdioAgentTransport } from './types';
 
@@ -36,7 +37,7 @@ function resolveWorkingDir(manifest: ResolvedAgentManifest, transport: StdioAgen
   return path.resolve(manifest.baseDir, transport.cwd);
 }
 
-export class StdioAgentRuntime implements AgentAdapter {
+export class StdioAgentRuntime implements CockpitAdapter {
   private readonly manifest: ResolvedAgentManifest;
   private readonly transport: StdioAgentTransport;
 
@@ -173,6 +174,18 @@ export class StdioAgentRuntime implements AgentAdapter {
   async step(input: StepInput): Promise<StepOutput> {
     await this.ensureHandshake();
     return await this.request<StepOutput>('run.step', { input });
+  }
+
+  describeCockpitCapabilities(): CockpitCapability[] {
+    return [
+      { kind: 'dialogue', description: 'Turn-based cockpit over stdio JSON-RPC.' },
+      { kind: 'workspace', description: 'May support explicit workspace solving over stdio JSON-RPC.' },
+    ];
+  }
+
+  async solveTaskInWorkspace(input: SolveTaskInWorkspaceInput): Promise<SolveTaskInWorkspaceResult> {
+    await this.ensureHandshake();
+    return await this.request<SolveTaskInWorkspaceResult>('run.solve_task_in_workspace', { input });
   }
 
   async close(): Promise<void> {
