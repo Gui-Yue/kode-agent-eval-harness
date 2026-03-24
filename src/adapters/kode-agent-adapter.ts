@@ -230,6 +230,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+async function interruptAgentBestEffort(agent: any, note: string): Promise<void> {
+  if (!agent || typeof agent.interrupt !== 'function') return;
+  try {
+    await agent.interrupt({ note });
+  } catch {
+    // best effort
+  }
+}
+
 function resolveSdkVersionFromSource(source: string): string {
   const candidates: string[] = [];
   if (source === '@shareai-lab/kode-sdk') {
@@ -658,6 +667,13 @@ export class KodeAgentAdapter implements CockpitAdapter {
     let result: any;
     try {
       result = await withTimeout(agent.complete(prompt), Math.max(1, deadlineMs || 1));
+    } catch (err) {
+      const normalized = normalizeError(err);
+      if (normalized.code === 'TIMEOUT') {
+        this.agentsByTask.delete(taskId);
+        await interruptAgentBestEffort(agent, `Timed out after ${deadlineMs}ms`);
+      }
+      throw err;
     } finally {
       offToken();
       offToolExecuted();
