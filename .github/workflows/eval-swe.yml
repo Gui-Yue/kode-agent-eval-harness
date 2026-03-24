@@ -65,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           RUNTIME_REF_INPUT="${{ github.event.inputs.runtime_ref }}"
-          RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-${EVAL_AGENT_CORE:-kode-agent-sdk}}}"
+          RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-kode-agent-sdk}}"
           case "$RUNTIME_REF" in
             kode-agent-sdk|kode-sdk|kode-agent|agents/default.json|agents/kode-agent-sdk.json)
               npm install --no-save @shareai-lab/kode-sdk
@@ -79,7 +79,7 @@ jobs:
           mkdir -p reports tests/tmp
 
           RUNTIME_REF_INPUT="${{ github.event.inputs.runtime_ref }}"
-          RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-${EVAL_AGENT_CORE:-kode-agent-sdk}}}"
+          RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-kode-agent-sdk}}"
           MODEL="${BENCHMARK_MODEL:-openai/glm-5}"
           MAX="${{ github.event.inputs.max_instances }}"
           if [[ -z "$MAX" ]]; then
