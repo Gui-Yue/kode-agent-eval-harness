@@ -51,6 +51,8 @@ jobs:
       EVAL_TB2_DATASET: ${{ vars.EVAL_TB2_DATASET }}
       EVAL_TB2_AGENT: ${{ vars.EVAL_TB2_AGENT }}
       EVAL_TB2_RUNNER: ${{ vars.EVAL_TB2_RUNNER }}
+      EVAL_TB2_HARBOR_VERSION: ${{ vars.EVAL_TB2_HARBOR_VERSION }}
+      EVAL_TB2_LITELLM_VERSION: ${{ vars.EVAL_TB2_LITELLM_VERSION }}
       EVAL_SOLVE_TIMEOUT_MS: ${{ vars.EVAL_SOLVE_TIMEOUT_MS }}
       EVAL_TB2_PYTHON: ${{ vars.EVAL_TB2_PYTHON }}
       EVAL_TB2_DOCKER_IMAGE: ${{ vars.EVAL_TB2_DOCKER_IMAGE }}
@@ -67,6 +69,10 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
@@ -91,6 +97,16 @@ jobs:
             esac
           fi
 
+      - name: Install pinned Harbor runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          HARBOR_VERSION="${EVAL_TB2_HARBOR_VERSION:-0.1.45}"
+          LITELLM_VERSION="${EVAL_TB2_LITELLM_VERSION:-1.80.8}"
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install "litellm==${LITELLM_VERSION}" "harbor==${HARBOR_VERSION}"
+          harbor --version
+
       - name: Run TB2 official evaluation
         shell: bash
         run: |
@@ -107,7 +123,7 @@ jobs:
           RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-${EVAL_AGENT_CORE:-kode-agent-sdk}}}"
           TB2_AGENT="${TB2_AGENT_INPUT:-${EVAL_TB2_AGENT:-oracle}}"
           TB2_DATASET="${TB2_DATASET_INPUT:-${EVAL_TB2_DATASET:-terminal-bench@2.0}}"
-          TB2_RUNNER="${TB2_RUNNER_INPUT:-${EVAL_TB2_RUNNER:-uvx}}"
+          TB2_RUNNER="${TB2_RUNNER_INPUT:-${EVAL_TB2_RUNNER:-harbor}}"
           SOLVE_TIMEOUT="${SOLVE_TIMEOUT_INPUT:-${EVAL_SOLVE_TIMEOUT_MS:-}}"
           TB2_PYTHON="${EVAL_TB2_PYTHON:-3.13}"
           TB2_DOCKER_IMAGE="${EVAL_TB2_DOCKER_IMAGE:-ghcr.io/astral-sh/uv:python3.13-bookworm}"
