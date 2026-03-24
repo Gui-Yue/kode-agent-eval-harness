@@ -289,7 +289,6 @@ function runOfficialTB2(opts: TB2OfficialOptions, envFile?: string): string {
 
   const runner = resolveRunner(opts, envFile);
   const harborArgs = ['run', '-d', opts.dataset];
-  if (opts.model) harborArgs.push('-m', opts.model);
 
   const env = { ...(runner.env ?? process.env) };
   if (opts.runtimeRef) {
@@ -298,6 +297,7 @@ function runOfficialTB2(opts: TB2OfficialOptions, envFile?: string): string {
     if (opts.model) env.EVAL_HARNESS_MODEL = opts.model;
     appendPythonPath(env, process.cwd());
   } else {
+    if (opts.model) harborArgs.push('-m', opts.model);
     harborArgs.push('-a', opts.agent);
   }
 
