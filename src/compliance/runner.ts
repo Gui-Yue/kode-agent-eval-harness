@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Ajv, { type AnySchema } from 'ajv';
 import addFormats from 'ajv-formats';
-import { createAdapter } from '../adapters/registry';
+import { createAgentRuntime } from '../agents/runtime';
 import type { ComplianceAssertion, ComplianceCase, StepOutput } from '../types';
 import { getByJsonPath } from '../utils/json-path';
 import { loadJsonSchema, readJson } from '../utils/io';
@@ -89,7 +89,7 @@ function listCaseFiles(casesDir: string): string[] {
 
 async function runSingleCase(adapterName: string, casePath: string): Promise<boolean> {
   const testCase = readJson<ComplianceCase>(casePath);
-  const adapter = createAdapter(adapterName);
+  const { adapter } = createAgentRuntime(adapterName);
   const metadata = await adapter.metadata();
 
   await adapter.init({

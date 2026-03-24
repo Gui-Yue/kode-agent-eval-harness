@@ -7,7 +7,7 @@ import { getEnvValue, resolveEnvFile } from '../utils/env';
 const TAU2_SOURCE = 'git+https://github.com/sierra-research/tau2-bench@v0.2.0';
 const TAU2_REPO = 'https://github.com/sierra-research/tau2-bench';
 const TAU2_REF = 'v0.2.0';
-const TAU_PLUGIN_MODULE = 'kode_tau2_agent_plugin';
+const TAU_PLUGIN_MODULE = 'tau2_protocol_agent_plugin';
 const TAU_PLUGIN_DIR = path.join(process.cwd(), 'src');
 
 export interface TAUOfficialOptions {
@@ -16,6 +16,7 @@ export interface TAUOfficialOptions {
   provider: string;
   model: string;
   agentCore?: string;
+  runtimeRef?: string;
   userModel?: string;
   dataDir: string;
   envFile?: string;
@@ -210,10 +211,6 @@ function sanitizeLabel(v: string): string {
 function resolveTauAgentCore(raw?: string): string {
   const v = (raw || '').trim();
   if (!v) return 'llm_agent';
-  if (v === 'kode-sdk' || v === 'kode-agent' || v === 'mock') {
-    console.warn(`[tau] Unsupported tau agent core "${v}", fallback to llm_agent`);
-    return 'llm_agent';
-  }
   return v;
 }
 
@@ -372,8 +369,9 @@ export async function runTAUOfficialBenchmark(rawOpts: TAUOfficialOptions): Prom
 
   const provider = rawOpts.provider || 'openai';
   const model = toTau2Model(provider, rawOpts.model);
-  const agentCore = resolveTauAgentCore(rawOpts.agentCore);
-  const builtinAgentCore = isBuiltinTauAgentCore(agentCore);
+  const runtimeRef = (rawOpts.runtimeRef || '').trim();
+  const agentCore = runtimeRef ? 'eval_harness_agent' : resolveTauAgentCore(rawOpts.agentCore);
+  const builtinAgentCore = runtimeRef ? false : isBuiltinTauAgentCore(agentCore);
   const defaultMaxConcurrency = 3;
   const rawMaxConcurrency = (process.env.TAU2_MAX_CONCURRENCY || '').trim();
   const parsedMaxConcurrency = Number(rawMaxConcurrency);
@@ -413,14 +411,15 @@ export async function runTAUOfficialBenchmark(rawOpts: TAUOfficialOptions): Prom
     appendPythonPath(env, pluginPath);
     env.TAU2_AGENT_PLUGIN_MODULE = pluginModule;
     env.TAU2_AGENT_PLUGIN_NAME = agentCore;
-    if (!env.TAU2_KODE_BRIDGE_TIMEOUT_MS) env.TAU2_KODE_BRIDGE_TIMEOUT_MS = '300000';
-    if (!env.TAU2_KODE_BRIDGE_RETRIES) env.TAU2_KODE_BRIDGE_RETRIES = '2';
-    if (!env.TAU2_KODE_MIN_REQUEST_INTERVAL_MS) env.TAU2_KODE_MIN_REQUEST_INTERVAL_MS = '2000';
+    if (runtimeRef) env.EVAL_HARNESS_AGENT_REF = runtimeRef;
+    env.EVAL_HARNESS_MODEL = model;
+    if (!env.EVAL_HARNESS_TIMEOUT_MS) env.EVAL_HARNESS_TIMEOUT_MS = '300000';
+    if (!env.TAU2_AGENT_MIN_REQUEST_INTERVAL_MS) env.TAU2_AGENT_MIN_REQUEST_INTERVAL_MS = '2000';
     if (!env.TAU2_USER_MIN_REQUEST_INTERVAL_MS) env.TAU2_USER_MIN_REQUEST_INTERVAL_MS = '5000';
     if (!env.TAU2_USER_REQUEST_JITTER_MS) env.TAU2_USER_REQUEST_JITTER_MS = '2000';
     if (!env.TAU2_USER_RATE_LIMIT_RETRIES) env.TAU2_USER_RATE_LIMIT_RETRIES = '6';
     if (!env.TAU2_USER_RATE_LIMIT_BACKOFF_MS) env.TAU2_USER_RATE_LIMIT_BACKOFF_MS = '5000';
-    console.log(`TAU plugin hook enabled: module=${pluginModule} path=${pluginPath}`);
+    console.log(`TAU runtime bridge enabled: module=${pluginModule} path=${pluginPath}`);
   }
 
   const allTasks: TaskResult[] = [];
@@ -430,7 +429,7 @@ export async function runTAUOfficialBenchmark(rawOpts: TAUOfficialOptions): Prom
   console.log(`TAU agent core: ${agentCore}`);
   console.log(`TAU max concurrency: ${maxConcurrency}`);
   if (!builtinAgentCore) {
-    console.log(`TAU kode bridge min request interval: ${env.TAU2_KODE_MIN_REQUEST_INTERVAL_MS}ms`);
+    console.log(`TAU runtime bridge min request interval: ${env.TAU2_AGENT_MIN_REQUEST_INTERVAL_MS}ms`);
     console.log(
       `TAU user simulator min request interval: ${env.TAU2_USER_MIN_REQUEST_INTERVAL_MS}ms `
       + `jitter=${env.TAU2_USER_REQUEST_JITTER_MS}ms `

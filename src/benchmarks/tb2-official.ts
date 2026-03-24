@@ -8,6 +8,7 @@ export interface TB2OfficialOptions {
   dataset: string;
   model?: string;
   agent: string;
+  runtimeRef?: string;
   jobsDir: string;
   runner: 'auto' | 'harbor' | 'uvx' | 'docker';
   dockerImage: string;
@@ -32,6 +33,12 @@ interface RunnerSpec {
 function hasCommand(cmd: string, versionArg = '--version'): boolean {
   const r = spawnSync(cmd, [versionArg], { stdio: 'ignore' });
   return r.status === 0;
+}
+
+function appendPythonPath(env: NodeJS.ProcessEnv, extraPath: string): void {
+  const key = 'PYTHONPATH';
+  const current = env[key];
+  env[key] = current ? `${extraPath}${path.delimiter}${current}` : extraPath;
 }
 
 function proxyLooksLocalhost(proxyUrl?: string): boolean {
@@ -279,7 +286,16 @@ function runOfficialTB2(opts: TB2OfficialOptions, envFile?: string): string {
   const runner = resolveRunner(opts, envFile);
   const harborArgs = ['run', '-d', opts.dataset];
   if (opts.model) harborArgs.push('-m', opts.model);
-  harborArgs.push('-a', opts.agent);
+
+  const env = { ...(runner.env ?? process.env) };
+  if (opts.runtimeRef) {
+    harborArgs.push('--agent-import-path', 'src.tb2_protocol_agent:ProtocolHarnessAgent');
+    env.EVAL_HARNESS_AGENT_REF = opts.runtimeRef;
+    if (opts.model) env.EVAL_HARNESS_MODEL = opts.model;
+    appendPythonPath(env, process.cwd());
+  } else {
+    harborArgs.push('-a', opts.agent);
+  }
 
   const fullArgs = [...runner.argsPrefix, ...harborArgs];
 
@@ -289,7 +305,7 @@ function runOfficialTB2(opts: TB2OfficialOptions, envFile?: string): string {
 
   const run = spawnSync(runner.cmd, fullArgs, {
     cwd: cwdForRun,
-    env: runner.env ?? process.env,
+    env,
     stdio: 'inherit',
   });
 

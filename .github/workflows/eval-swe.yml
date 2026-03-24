@@ -3,6 +3,10 @@ name: eval-swe-official
 on:
   workflow_dispatch:
     inputs:
+      runtime_ref:
+        description: "Runtime-under-test ref (empty uses repo var EVAL_RUNTIME_REF, default kode-agent-sdk)"
+        required: false
+        default: ""
       max_instances:
         description: "Override SWE max instances (empty uses repo var EVAL_SWE_MAX_INSTANCES)"
         required: false
@@ -11,6 +15,7 @@ on:
     branches: [main]
     paths:
       - "src/**"
+      - "agents/**"
       - "benchmarks-data/**"
       - "package.json"
       - "package-lock.json"
@@ -31,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 720
     env:
+      EVAL_RUNTIME_REF: ${{ vars.EVAL_RUNTIME_REF }}
       EVAL_AGENT_CORE: ${{ vars.EVAL_AGENT_CORE }}
       EVAL_SWE_MAX_INSTANCES: ${{ vars.EVAL_SWE_MAX_INSTANCES }}
       BENCHMARK_PROVIDER: ${{ vars.EVAL_PROVIDER }}
@@ -54,20 +60,33 @@ jobs:
       - name: Check Docker
         run: docker info
 
+      - name: Install Kode runtime SDK when needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_REF_INPUT="${{ github.event.inputs.runtime_ref }}"
+          RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-${EVAL_AGENT_CORE:-kode-agent-sdk}}}"
+          case "$RUNTIME_REF" in
+            kode-agent-sdk|kode-sdk|kode-agent|agents/default.json|agents/kode-agent-sdk.json)
+              npm install --no-save @shareai-lab/kode-sdk
+              ;;
+          esac
+
       - name: Run SWE official evaluation
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p reports tests/tmp
 
-          AGENT="${EVAL_AGENT_CORE:-kode-sdk}"
+          RUNTIME_REF_INPUT="${{ github.event.inputs.runtime_ref }}"
+          RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-${EVAL_AGENT_CORE:-kode-agent-sdk}}}"
           MODEL="${BENCHMARK_MODEL:-openai/glm-5}"
           MAX="${{ github.event.inputs.max_instances }}"
           if [[ -z "$MAX" ]]; then
             MAX="${EVAL_SWE_MAX_INSTANCES:-0}"
           fi
 
-          CMD=(npm run run -- --benchmark=swe --agent="$AGENT" --model="$MODEL" --swe-auto-generate=true --out=reports/swe-official.json)
+          CMD=(npm run run -- --benchmark=swe --agent="$RUNTIME_REF" --model="$MODEL" --swe-auto-generate=true --out=reports/swe-official.json)
           if [[ "$MAX" =~ ^[0-9]+$ ]] && [[ "$MAX" -gt 0 ]]; then
             CMD+=(--swe-max-instances="$MAX")
           fi

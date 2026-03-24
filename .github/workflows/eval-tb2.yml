@@ -3,6 +3,10 @@ name: eval-tb2-official
 on:
   workflow_dispatch:
     inputs:
+      runtime_ref:
+        description: "Runtime-under-test ref (empty uses repo var EVAL_RUNTIME_REF, default kode-agent-sdk)"
+        required: false
+        default: ""
       tb2_runner:
         description: "Override tb2 runner: auto|harbor|uvx|docker (empty uses repo var EVAL_TB2_RUNNER)"
         required: false
@@ -11,10 +15,15 @@ on:
         description: "Override TB2 dataset (empty uses repo var EVAL_TB2_DATASET)"
         required: false
         default: ""
+      tb2_agent:
+        description: "Optional fallback to official Harbor agent when runtime_ref is empty"
+        required: false
+        default: ""
   push:
     branches: [main]
     paths:
       - "src/**"
+      - "agents/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/eval-tb2.yml"
@@ -34,6 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 720
     env:
+      EVAL_RUNTIME_REF: ${{ vars.EVAL_RUNTIME_REF }}
       EVAL_TB2_DATASET: ${{ vars.EVAL_TB2_DATASET }}
       EVAL_TB2_AGENT: ${{ vars.EVAL_TB2_AGENT }}
       EVAL_TB2_RUNNER: ${{ vars.EVAL_TB2_RUNNER }}
@@ -62,6 +72,20 @@ jobs:
       - name: Check Docker
         run: docker info
 
+      - name: Install Kode runtime SDK when needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_REF_INPUT="${{ github.event.inputs.runtime_ref }}"
+          RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-${EVAL_AGENT_CORE:-kode-agent-sdk}}}"
+          if [[ -n "$RUNTIME_REF" ]]; then
+            case "$RUNTIME_REF" in
+              kode-agent-sdk|kode-sdk|kode-agent|agents/default.json|agents/kode-agent-sdk.json)
+                npm install --no-save @shareai-lab/kode-sdk
+                ;;
+            esac
+          fi
+
       - name: Run TB2 official evaluation
         shell: bash
         run: |
@@ -69,17 +93,24 @@ jobs:
           mkdir -p reports tests/tmp/jobs
 
           MODEL="${BENCHMARK_MODEL:-openai/glm-5}"
-          TB2_AGENT="${EVAL_TB2_AGENT:-oracle}"
-
+          RUNTIME_REF_INPUT="${{ github.event.inputs.runtime_ref }}"
+          TB2_AGENT_INPUT="${{ github.event.inputs.tb2_agent }}"
           TB2_DATASET_INPUT="${{ github.event.inputs.tb2_dataset }}"
           TB2_RUNNER_INPUT="${{ github.event.inputs.tb2_runner }}"
 
+          RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-${EVAL_AGENT_CORE:-kode-agent-sdk}}}"
+          TB2_AGENT="${TB2_AGENT_INPUT:-${EVAL_TB2_AGENT:-oracle}}"
           TB2_DATASET="${TB2_DATASET_INPUT:-${EVAL_TB2_DATASET:-terminal-bench@2.0}}"
           TB2_RUNNER="${TB2_RUNNER_INPUT:-${EVAL_TB2_RUNNER:-uvx}}"
           TB2_PYTHON="${EVAL_TB2_PYTHON:-3.12}"
           TB2_DOCKER_IMAGE="${EVAL_TB2_DOCKER_IMAGE:-ghcr.io/astral-sh/uv:python3.12-bookworm}"
 
-          CMD=(npm run run -- --benchmark=tb2 --model="$MODEL" --tb2-agent="$TB2_AGENT" --tb2-dataset="$TB2_DATASET" --tb2-runner="$TB2_RUNNER" --tb2-python="$TB2_PYTHON" --tb2-docker-image="$TB2_DOCKER_IMAGE" --tb2-jobs-dir=tests/tmp/jobs --out=reports/tb2-official.json)
+          CMD=(npm run run -- --benchmark=tb2 --model="$MODEL" --tb2-dataset="$TB2_DATASET" --tb2-runner="$TB2_RUNNER" --tb2-python="$TB2_PYTHON" --tb2-docker-image="$TB2_DOCKER_IMAGE" --tb2-jobs-dir=tests/tmp/jobs --out=reports/tb2-official.json)
+          if [[ -n "$RUNTIME_REF" ]]; then
+            CMD+=(--agent="$RUNTIME_REF")
+          else
+            CMD+=(--tb2-agent="$TB2_AGENT")
+          fi
 
           echo "Running: ${CMD[*]}"
           "${CMD[@]}"

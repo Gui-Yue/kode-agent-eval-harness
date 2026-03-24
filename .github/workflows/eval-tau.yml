@@ -3,6 +3,10 @@ name: eval-tau-official
 on:
   workflow_dispatch:
     inputs:
+      runtime_ref:
+        description: "Runtime-under-test ref (empty uses repo var EVAL_RUNTIME_REF, default kode-agent-sdk)"
+        required: false
+        default: ""
       domain:
         description: "Override TAU domain (empty uses repo var EVAL_TAU_DOMAIN, default airline)"
         required: false
@@ -12,13 +16,14 @@ on:
         required: false
         default: ""
       agent_core:
-        description: "Override TAU agent core (e.g. llm_agent / llm_agent_solo)"
+        description: "Optional fallback to official TAU agent core when runtime_ref is empty"
         required: false
         default: ""
   push:
     branches: [main]
     paths:
       - "src/**"
+      - "agents/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/eval-tau.yml"
@@ -38,6 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 720
     env:
+      EVAL_RUNTIME_REF: ${{ vars.EVAL_RUNTIME_REF }}
       EVAL_TAU_DOMAIN: ${{ vars.EVAL_TAU_DOMAIN }}
       EVAL_TAU_NUM_TRIALS: ${{ vars.EVAL_TAU_NUM_TRIALS }}
       EVAL_TAU_AGENT_CORE: ${{ vars.EVAL_TAU_AGENT_CORE }}
@@ -63,6 +69,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Kode runtime SDK when needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME_REF_INPUT="${{ github.event.inputs.runtime_ref }}"
+          RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-${EVAL_AGENT_CORE:-kode-agent-sdk}}}"
+          if [[ -n "$RUNTIME_REF" ]]; then
+            case "$RUNTIME_REF" in
+              kode-agent-sdk|kode-sdk|kode-agent|agents/default.json|agents/kode-agent-sdk.json)
+                npm install --no-save @shareai-lab/kode-sdk
+                ;;
+            esac
+          fi
+
       - name: Run TAU official evaluation
         shell: bash
         run: |
@@ -72,29 +92,21 @@ jobs:
           PROVIDER="${BENCHMARK_PROVIDER:-openai}"
           MODEL="${BENCHMARK_MODEL:-openai/glm-5}"
 
+          RUNTIME_REF_INPUT="${{ github.event.inputs.runtime_ref }}"
           DOMAIN_INPUT="${{ github.event.inputs.domain }}"
           TRIALS_INPUT="${{ github.event.inputs.num_trials }}"
           AGENT_CORE_INPUT="${{ github.event.inputs.agent_core }}"
 
+          RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-${EVAL_AGENT_CORE:-kode-agent-sdk}}}"
           DOMAIN="${DOMAIN_INPUT:-${EVAL_TAU_DOMAIN:-airline}}"
           TRIALS="${TRIALS_INPUT:-${EVAL_TAU_NUM_TRIALS:-1}}"
-          AGENT_CORE="${AGENT_CORE_INPUT:-${EVAL_TAU_AGENT_CORE:-${EVAL_AGENT_CORE:-llm_agent}}}"
+          AGENT_CORE="${AGENT_CORE_INPUT:-${EVAL_TAU_AGENT_CORE:-llm_agent}}"
 
-          case "$AGENT_CORE" in
-            llm_agent|llm_agent_solo|llm_agent_gt)
-              IS_BUILTIN_AGENT=true
-              ;;
-            *)
-              IS_BUILTIN_AGENT=false
-              ;;
-          esac
-
-          if [[ "$IS_BUILTIN_AGENT" == "false" ]]; then
-            echo "Custom TAU agent core detected: $AGENT_CORE"
-            npm install --no-save @shareai-lab/kode-sdk
+          if [[ -n "$RUNTIME_REF" ]]; then
+            CMD=(npm run run -- --benchmark=tau --agent="$RUNTIME_REF" --provider="$PROVIDER" --model="$MODEL" --tau-domain="$DOMAIN" --num-trials="$TRIALS" --tau-data-dir=tests/tmp/tau2-data --out=reports/tau-official.json)
+          else
+            CMD=(npm run run -- --benchmark=tau --provider="$PROVIDER" --model="$MODEL" --tau-domain="$DOMAIN" --tau-agent-core="$AGENT_CORE" --num-trials="$TRIALS" --tau-data-dir=tests/tmp/tau2-data --out=reports/tau-official.json)
           fi
-
-          CMD=(npm run run -- --benchmark=tau --provider="$PROVIDER" --model="$MODEL" --tau-domain="$DOMAIN" --tau-agent-core="$AGENT_CORE" --num-trials="$TRIALS" --tau-data-dir=tests/tmp/tau2-data --out=reports/tau-official.json)
 
           echo "Running: ${CMD[*]}"
           "${CMD[@]}"

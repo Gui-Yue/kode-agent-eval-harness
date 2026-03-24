@@ -2,7 +2,7 @@ import type { AgentAdapter } from './interface';
 import { MockAdapter } from './mock-adapter';
 import { KodeAgentAdapter } from './kode-agent-adapter';
 
-export function createAdapter(name: string): AgentAdapter {
+export function createBuiltinAdapter(name: string): AgentAdapter {
   switch (name) {
     case 'mock':
       return new MockAdapter();
@@ -10,6 +10,8 @@ export function createAdapter(name: string): AgentAdapter {
       return new KodeAgentAdapter({ autoInstall: false, adapterId: 'kode-agent' });
     case 'kode-sdk':
       return new KodeAgentAdapter({ autoInstall: true, adapterId: 'kode-sdk' });
+    case 'kode-agent-sdk':
+      return new KodeAgentAdapter({ autoInstall: true, adapterId: 'kode-agent-sdk' });
     case 'oracle':
     case 'codex':
     case 'claude-code':
@@ -18,4 +20,8 @@ export function createAdapter(name: string): AgentAdapter {
     default:
       throw new Error(`Unknown adapter: ${name}`);
   }
+}
+
+export function createAdapter(name: string): AgentAdapter {
+  return createBuiltinAdapter(name);
 }

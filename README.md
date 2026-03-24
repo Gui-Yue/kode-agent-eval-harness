@@ -60,10 +60,40 @@ Note:
 
 ## Real KODE Runtime Adapters
 
-Two adapter names are available:
+Three built-in runtime ids are available:
 
+- `--agent=kode-agent-sdk`: preferred default runtime-under-test for real benchmark runs; plugin mode with runtime auto-install
 - `--agent=kode-agent`: load SDK from local/global installation
-- `--agent=kode-sdk`: plugin mode, auto-install SDK at runtime and auto-clean after test
+- `--agent=kode-sdk`: backward-compatible alias for the plugin-mode runtime
+
+## Runtime Under Test Interface
+
+The harness now treats the evaluated object as a runtime under test, not a benchmark-owned agent implementation.
+
+- SWE keeps official prediction scoring, but patch generation goes through `--agent=<runtime-ref>`
+- TAU keeps official environments and reward scoring, but conversation/tool decisions can be delegated through `--agent=<runtime-ref>`
+- TB2 keeps official Harbor orchestration and verifier logic, but task execution can be delegated through `--agent=<runtime-ref>`
+
+Runtime refs can be:
+
+- a built-in runtime id like `mock`, `kode-agent-sdk`, `kode-agent`, `kode-sdk`
+- a manifest path like `agents/mock.json` or `./agents/my-runtime.json`
+
+Examples:
+
+```bash
+# mock benchmark against a manifest-defined runtime
+npm run run -- --benchmark=mock --agent=agents/mock.json --out=reports/mock-runtime.json
+
+# real benchmark default runtime-under-test
+npm run run -- --benchmark=swe --model=openai/glm-5 --out=reports/swe-default-runtime.json
+
+# TAU official environment + verifier, runtime-under-test drives the actions
+npm run run -- --benchmark=tau --agent=agents/mock.json --provider=openai --model=glm-5 --tau-domain=airline --num-trials=1 --out=reports/tau-runtime.json
+
+# TB2 official Harbor environment + verifier, runtime-under-test drives the actions
+npm run run -- --benchmark=tb2 --agent=agents/mock.json --model=openai/glm-5 --tb2-runner=uvx --out=reports/tb2-runtime.json
+```
 
 Recommended setup via `.env`:
 
@@ -86,9 +116,9 @@ The CLI auto-loads root `.env` on startup.
 ```bash
 npm run run -- \
   --benchmark=mock \
-  --agent=kode-sdk \
+  --agent=kode-agent-sdk \
   --model=openai/glm-5 \
-  --out=reports/mock-kode-sdk.json
+  --out=reports/mock-kode-agent-sdk.json
 ```
 
 ### SWE prediction generation with real adapter
@@ -96,11 +126,11 @@ npm run run -- \
 ```bash
 npm run run -- \
   --benchmark=swe \
-  --agent=kode-sdk \
+  --agent=kode-agent-sdk \
   --model=openai/glm-5 \
   --swe-generate-only=true \
   --swe-max-instances=2 \
-  --out=reports/swe-kode-sdk-generate.json
+  --out=reports/swe-kode-agent-sdk-generate.json
 ```
 
 ## Run Commands
@@ -204,8 +234,8 @@ npm run run -- \
 
 Current built-in plugin files:
 - `src/sitecustomize.py`: Python startup hook that auto-imports plugin module.
-- `src/kode_tau2_agent_plugin.py`: registers `KodeLLMAgent` (subclass of tau2 `LLMAgent`) into tau2 registry.
-- `src/tau2_kode_bridge.mjs`: Node bridge that calls `@shareai-lab/kode-sdk` and returns either message or tool_call JSON.
+- `src/tau2_protocol_agent_plugin.py`: generic TAU2 plugin that delegates each turn to the harness runtime bridge.
+- `src/tb2_protocol_agent.py`: Harbor custom agent that delegates shell decisions to the harness runtime bridge.
 
 Requirements for TAU custom core:
 - Node `node` command available.

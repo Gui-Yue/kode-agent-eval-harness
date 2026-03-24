@@ -16,7 +16,7 @@ type KodeSdkModule = {
 
 export interface KodeAgentAdapterOptions {
   autoInstall?: boolean;
-  adapterId?: 'kode-agent' | 'kode-sdk';
+  adapterId?: 'kode-agent' | 'kode-sdk' | 'kode-agent-sdk';
 }
 
 const NORMALIZED_ERROR_CODES: ReadonlySet<AgentError['code']> = new Set([
@@ -245,7 +245,7 @@ function loadKodeSdkFromEntries(entries: string[]): { sdk: KodeSdkModule; source
 
 export class KodeAgentAdapter implements AgentAdapter {
   private readonly autoInstall: boolean;
-  private readonly adapterId: 'kode-agent' | 'kode-sdk';
+  private readonly adapterId: 'kode-agent' | 'kode-sdk' | 'kode-agent-sdk';
 
   private initialized = false;
   private ctx: RunContext | null = null;

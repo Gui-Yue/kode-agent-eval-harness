@@ -1,0 +1,9 @@
+{
+  "api_version": "agent-runtime/v1",
+  "name": "kode-agent",
+  "transport": {
+    "kind": "builtin",
+    "adapter": "kode-agent"
+  },
+  "supported_benchmarks": ["mock", "swe", "tb2", "tau"]
+}

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
-import { createAdapter } from '../adapters/registry';
+import { createAgentRuntime } from '../agents/runtime';
 import type { BenchmarkId, TaskResult, TokenUsage } from '../types';
 
 interface SWEInstance {
@@ -230,7 +230,7 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
     ? instances.slice(0, opts.maxInstances)
     : instances;
 
-  const adapter = createAdapter(opts.adapter);
+  const { adapter } = createAgentRuntime(opts.adapter);
   const predictions: SWEPrediction[] = [];
   const tasks: TaskResult[] = [];
   const dockerAvailable = isDockerAvailable();

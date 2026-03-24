@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Ajv, { type AnySchema } from 'ajv';
 import addFormats from 'ajv-formats';
-import { createAdapter } from '../adapters/registry';
+import { createAgentRuntime } from '../agents/runtime';
 import { createBenchmarkDriver } from '../benchmarks';
 import { generateSWEPredictions } from '../benchmarks/swe-generate';
 import { runSWEOfficialBenchmark } from '../benchmarks/swe-official';
@@ -14,6 +14,7 @@ import { writeJson, loadJsonSchema } from '../utils/io';
 export interface RunOptions {
   benchmark: BenchmarkId;
   agent: string;
+  runtimeRef?: string;
   model: string;
   out: string;
   seed: number;
@@ -83,6 +84,7 @@ function asBoolean(v: string | undefined, fallback: boolean): boolean {
 }
 
 export function parseRunOptions(options: Record<string, string>): RunOptions {
+  const benchmark = (getOption(options, 'benchmark') as BenchmarkId) || 'mock';
   const tb2RunnerRaw = getOption(options, 'tb2-runner', 'tb2_runner', 'runner') || 'auto';
   const tb2Runner = ['auto', 'harbor', 'uvx', 'docker'].includes(tb2RunnerRaw)
     ? (tb2RunnerRaw as RunOptions['tb2Runner'])
@@ -102,9 +104,13 @@ export function parseRunOptions(options: Record<string, string>): RunOptions {
     provider,
   );
 
+  const runtimeRef = getOption(options, 'agent')
+    || (benchmark === 'mock' ? 'mock' : 'kode-agent-sdk');
+
   return {
-    benchmark: (getOption(options, 'benchmark') as BenchmarkId) || 'mock',
-    agent: getOption(options, 'agent') || 'mock',
+    benchmark,
+    agent: runtimeRef,
+    runtimeRef,
     model,
     out: getOption(options, 'out', 'output') || 'reports/run-report.json',
     seed: asNumber(getOption(options, 'seed'), 42),
@@ -174,7 +180,7 @@ function validateReport(report: UnifiedRunReport): void {
 }
 
 async function runMockBenchmark(opts: RunOptions): Promise<{ dataset: string; tasks: TaskResult[] }> {
-  const adapter = createAdapter(opts.agent);
+  const { adapter } = createAgentRuntime(opts.runtimeRef || opts.agent);
   const driver = createBenchmarkDriver('mock');
   const tasks = await driver.loadTasks();
 
@@ -286,7 +292,7 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
         const gen = await generateSWEPredictions({
           casesFile: opts.sweCasesFile,
           outputFile: opts.swePredictionOut,
-          adapter: opts.agent,
+          adapter: opts.runtimeRef || opts.agent,
           model: opts.model,
           seed: opts.seed,
           timeoutMs: opts.timeoutMs,
@@ -319,6 +325,7 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
         dataset: opts.tb2Dataset,
         model: opts.model,
         agent: opts.tb2Agent,
+        runtimeRef: opts.runtimeRef,
         jobsDir: opts.tb2JobsDir,
         runner: opts.tb2Runner,
         dockerImage: opts.tb2DockerImage,
@@ -336,6 +343,7 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
         provider: opts.provider,
         model: opts.model,
         agentCore: opts.tauAgentCore,
+        runtimeRef: opts.runtimeRef,
         userModel: opts.tauUserModel,
         dataDir: opts.tauDataDir,
         envFile: opts.tauEnvFile,
@@ -349,6 +357,7 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
 }
 
 function displayAgentLabel(opts: RunOptions): string {
+  if (opts.runtimeRef) return opts.runtimeRef;
   if (opts.benchmark === 'tb2') return opts.tb2Agent;
   if (opts.benchmark === 'tau') return `tau2-${opts.tauAgentCore}`;
   if (opts.benchmark === 'swe') return opts.agent;
