@@ -81,7 +81,10 @@ The protocol payloads reuse the repository types already defined in `src/types.t
 
 #### SWE
 
-- generate predictions by calling the runtime contract directly
+- materialize the benchmark repository into a per-instance local workspace
+- call the runtime contract against that workspace so the runtime under test edits files directly
+- collect the candidate fix from the resulting git diff
+- only fall back to direct patch text extraction when the runtime does not modify the workspace
 - score with the official docker evaluation path
 
 #### TAU2
@@ -135,6 +138,7 @@ This first implementation adds:
 1. The benchmark-side TAU/TB2 bridges are stateless per bridge invocation and rely on full message history plus tool observations, not long-lived in-process agent state.
 2. TB2 custom-agent behavior depends on Harbor's external agent API and is implemented defensively because Harbor types are not vendored in this repository.
 3. External `stdio` runtimes must implement the JSON-RPC contract explicitly; this refactor does not yet scaffold runtime servers automatically.
+4. SWE workspace execution assumes the runtime can honor workspace hints from the benchmark state, such as `workdir` / `repo_root`, or otherwise act on the checked-out repository directly.
 
 ## Next Steps After Phase 1
 

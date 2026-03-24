@@ -85,6 +85,35 @@ function buildPrompt(inst: SWEInstance): string {
   return parts.join('\n');
 }
 
+function buildWorkspacePrompt(inst: SWEInstance, workDir: string): string {
+  const candidatePaths = extractRelevantPaths(inst.problem_statement, inst.hints_text).slice(0, 8);
+  const parts = [
+    'You are solving a SWE-bench instance inside a local repository workspace.',
+    `Instance ID: ${inst.instance_id}`,
+    `Repo: ${inst.repo}`,
+    `Base commit: ${inst.base_commit}`,
+    `Workspace: ${workDir}`,
+    '',
+    'Modify the repository files directly to fix the issue.',
+    'Inspect the codebase, edit files in place, and run focused checks if your runtime supports it.',
+    'Do not return a git patch unless you are completely unable to modify the workspace directly.',
+    'When you are done, return a short plain-text summary of what you changed.',
+    '',
+    'Problem statement:',
+    inst.problem_statement,
+  ];
+
+  if (inst.hints_text) {
+    parts.push('', 'Hints:', inst.hints_text);
+  }
+
+  if (candidatePaths.length > 0) {
+    parts.push('', 'Likely relevant paths:', ...candidatePaths.map(p => `- ${p}`));
+  }
+
+  return parts.join('\n');
+}
+
 function isDockerAvailable(): boolean {
   try {
     execSync('docker info', { stdio: 'pipe', timeout: 10000 });
@@ -126,6 +155,77 @@ function pullImage(imageName: string, proxyUrl?: string): boolean {
     timeout: 1200000,
   });
   return pull.status === 0;
+}
+
+function cleanupDir(workDir: string): void {
+  try {
+    fs.rmSync(workDir, { recursive: true, force: true });
+  } catch {
+    // best effort cleanup
+  }
+}
+
+function materializeWorkspaceFromImage(imageName: string, workDir: string): { ok: boolean; error?: string } {
+  cleanupDir(workDir);
+  fs.mkdirSync(workDir, { recursive: true });
+
+  const create = spawnSync('docker', ['create', imageName, 'bash', '-lc', 'exit 0'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf-8',
+    timeout: 60000,
+  });
+
+  if (create.status !== 0 || !create.stdout.trim()) {
+    return {
+      ok: false,
+      error: `docker create failed (${create.status ?? 'unknown'}): ${(create.stderr || '').trim()}`,
+    };
+  }
+
+  const containerId = create.stdout.trim();
+  try {
+    const copy = spawnSync('docker', ['cp', `${containerId}:/testbed/.`, workDir], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+      timeout: 900000,
+    });
+
+    if (copy.status !== 0) {
+      return {
+        ok: false,
+        error: `docker cp failed (${copy.status ?? 'unknown'}): ${(copy.stderr || '').trim()}`,
+      };
+    }
+
+    return { ok: true };
+  } finally {
+    spawnSync('docker', ['rm', '-f', containerId], {
+      stdio: 'ignore',
+      timeout: 60000,
+    });
+  }
+}
+
+function collectWorkspacePatch(workDir: string): string {
+  const res = spawnSync(
+    'git',
+    ['-C', workDir, 'diff', '--binary', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/'],
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+      timeout: 120000,
+    },
+  );
+
+  if (res.status !== 0) {
+    const err = (res.stderr || '').trim();
+    if (err) {
+      console.log(`[swe-gen] git diff failed in ${workDir}: ${err}`);
+    }
+    return '';
+  }
+
+  return extractPatchText(res.stdout || '');
 }
 
 function extractRelevantPaths(problemStatement: string, hintsText?: string): string[] {
@@ -348,6 +448,22 @@ function buildPatchRepairPrompt(inst: SWEInstance, rawOutput: string): string {
   ].join('\n');
 }
 
+function buildWorkspaceRepairPrompt(inst: SWEInstance, workDir: string, rawOutput: string): string {
+  const clipped = rawOutput.trim().slice(0, 8000);
+  return [
+    'No repository changes were detected in the workspace after your previous turn.',
+    `Instance ID: ${inst.instance_id}`,
+    `Workspace: ${workDir}`,
+    '',
+    'You must modify files in the workspace directly.',
+    'Do not just describe the fix.',
+    'After editing the repository, reply with a short summary only.',
+    '',
+    'Previous answer:',
+    clipped,
+  ].join('\n');
+}
+
 function toTokenUsage(totalTokens?: number): TokenUsage | null {
   if (typeof totalTokens !== 'number' || !Number.isFinite(totalTokens)) return null;
   return {
@@ -388,24 +504,50 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
   try {
     for (const inst of selected) {
       const t0 = Date.now();
+      let workspaceDir: string | null = null;
       try {
         let prompt = buildPrompt(inst);
+        let runtimeState: Record<string, unknown> = {
+          repo: inst.repo,
+          base_commit: inst.base_commit,
+          test_command: inst.test_command,
+        };
+
         if (contextEnabled) {
           const imageName = getSWEBenchImageName(inst.instance_id, opts.imageNamespace);
           if (pullImage(imageName, opts.dockerProxy)) {
-            const relevantPaths = extractRelevantPaths(inst.problem_statement, inst.hints_text);
-            const selectedPaths = relevantPaths.slice(0, 6);
-            if (selectedPaths.length > 0) {
-              const files = readFilesFromImage(imageName, selectedPaths);
-              const fileCount = Object.keys(files).length;
-              if (fileCount > 0) {
-                prompt = buildPromptWithContext(inst, files);
-                console.log(`[swe-gen] ${inst.instance_id}: loaded ${fileCount} context files`);
-              } else {
-                console.log(`[swe-gen] ${inst.instance_id}: no readable context files, fallback to prompt-only`);
-              }
+            workspaceDir = path.resolve(
+              process.cwd(),
+              'tests/tmp/swe-workspaces',
+              `${inst.instance_id}-${Date.now()}`,
+            );
+            const materialized = materializeWorkspaceFromImage(imageName, workspaceDir);
+            if (materialized.ok) {
+              prompt = buildWorkspacePrompt(inst, workspaceDir);
+              runtimeState = {
+                ...runtimeState,
+                workdir: workspaceDir,
+                repo_root: workspaceDir,
+              };
+              console.log(`[swe-gen] ${inst.instance_id}: workspace ready at ${workspaceDir}`);
             } else {
-              console.log(`[swe-gen] ${inst.instance_id}: no candidate file paths from statement/hints`);
+              console.log(`[swe-gen] ${inst.instance_id}: workspace setup failed, fallback to prompt-only (${materialized.error})`);
+              cleanupDir(workspaceDir);
+              workspaceDir = null;
+              const relevantPaths = extractRelevantPaths(inst.problem_statement, inst.hints_text);
+              const selectedPaths = relevantPaths.slice(0, 6);
+              if (selectedPaths.length > 0) {
+                const files = readFilesFromImage(imageName, selectedPaths);
+                const fileCount = Object.keys(files).length;
+                if (fileCount > 0) {
+                  prompt = buildPromptWithContext(inst, files);
+                  console.log(`[swe-gen] ${inst.instance_id}: loaded ${fileCount} context files`);
+                } else {
+                  console.log(`[swe-gen] ${inst.instance_id}: no readable context files, fallback to prompt-only`);
+                }
+              } else {
+                console.log(`[swe-gen] ${inst.instance_id}: no candidate file paths from statement/hints`);
+              }
             }
           } else {
             console.log(`[swe-gen] ${inst.instance_id}: image pull failed for context, fallback to prompt-only`);
@@ -417,16 +559,12 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
           turn_id: 1,
           observation: {
             messages: [{ role: 'user', content: prompt }],
-            state: {
-              repo: inst.repo,
-              base_commit: inst.base_commit,
-              test_command: inst.test_command,
-            },
+            state: runtimeState,
             tools: [],
           },
           allowed_actions: ['final_answer', 'no_op'],
           deadline_ms: opts.timeoutMs,
-          state: {},
+          state: runtimeState,
         });
 
         if (output.error) {
@@ -462,35 +600,40 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
         }
 
         let rawAnswer = output.action.type === 'final_answer' ? (output.action.content || '') : '';
-        let patch = output.action.type === 'final_answer'
-          ? extractPatchText(rawAnswer)
-          : '';
+        let patch = workspaceDir ? collectWorkspacePatch(workspaceDir) : '';
+        if (!patch && output.action.type === 'final_answer') {
+          patch = extractPatchText(rawAnswer);
+        }
         let tokenTotal = output.usage?.total_tokens ?? 0;
         let repairAttempted = false;
 
         if (!patch && rawAnswer.trim()) {
           repairAttempted = true;
-          console.log(`[swe-gen] ${inst.instance_id}: invalid patch format, requesting patch-only rewrite`);
+          const repairPrompt = workspaceDir
+            ? buildWorkspaceRepairPrompt(inst, workspaceDir, rawAnswer)
+            : buildPatchRepairPrompt(inst, rawAnswer);
+          console.log(
+            `[swe-gen] ${inst.instance_id}: ${workspaceDir ? 'no workspace diff' : 'invalid patch format'}, requesting retry`,
+          );
           const repair = await adapter.step({
             task_id: inst.instance_id,
             turn_id: 2,
             observation: {
-              messages: [{ role: 'user', content: buildPatchRepairPrompt(inst, rawAnswer) }],
-              state: {
-                repo: inst.repo,
-                base_commit: inst.base_commit,
-                test_command: inst.test_command,
-              },
+              messages: [{ role: 'user', content: repairPrompt }],
+              state: runtimeState,
               tools: [],
             },
             allowed_actions: ['final_answer', 'no_op'],
             deadline_ms: opts.timeoutMs,
-            state: {},
+            state: runtimeState,
           });
 
           if (!repair.error && repair.action.type === 'final_answer') {
             rawAnswer = repair.action.content || '';
-            patch = extractPatchText(rawAnswer);
+            patch = workspaceDir ? collectWorkspacePatch(workspaceDir) : '';
+            if (!patch) {
+              patch = extractPatchText(rawAnswer);
+            }
           }
 
           if (typeof repair.usage?.total_tokens === 'number' && Number.isFinite(repair.usage.total_tokens)) {
@@ -521,10 +664,14 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
             passed: false,
             score: 0,
             duration_ms: duration,
-            error_code: repairAttempted ? 'INVALID_PATCH' : 'EMPTY_PATCH',
+            error_code: repairAttempted ? (workspaceDir ? 'NO_WORKSPACE_DIFF' : 'INVALID_PATCH') : 'EMPTY_PATCH',
             token_usage: toTokenUsage(tokenTotalMaybe),
           });
-          console.log(`[swe-gen] ${inst.instance_id}: ${repairAttempted ? 'invalid patch' : 'empty patch'}`);
+          console.log(
+            `[swe-gen] ${inst.instance_id}: ${
+              repairAttempted ? (workspaceDir ? 'no workspace diff' : 'invalid patch') : 'empty patch'
+            }`,
+          );
         }
       } catch (err: any) {
         tasks.push({
@@ -536,6 +683,10 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
           token_usage: null,
         });
         console.log(`[swe-gen] ${inst.instance_id}: generation error (${err?.message || String(err)})`);
+      } finally {
+        if (workspaceDir) {
+          cleanupDir(workspaceDir);
+        }
       }
     }
   } finally {

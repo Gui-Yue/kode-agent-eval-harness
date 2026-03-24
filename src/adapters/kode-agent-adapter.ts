@@ -80,6 +80,17 @@ function resolveProviderEnv(provider: string): { apiKey?: string; baseUrl?: stri
   };
 }
 
+function extractWorkDirOverride(...sources: Array<Record<string, unknown> | null | undefined>): string | null {
+  for (const source of sources) {
+    if (!source) continue;
+    const value = source.workdir ?? source.repo_root ?? source.workspace;
+    if (typeof value === 'string' && value.trim() !== '') {
+      return path.resolve(value.trim());
+    }
+  }
+  return null;
+}
+
 function normalizeError(err: unknown): AgentError {
   const anyErr = err as any;
   const msg = String(anyErr?.message || err || 'unknown adapter error');
@@ -454,7 +465,7 @@ export class KodeAgentAdapter implements AgentAdapter {
     return { ctx: this.ctx, sdk: this.sdk, deps: this.deps };
   }
 
-  private async getOrCreateTaskAgent(taskId: string): Promise<any> {
+  private async getOrCreateTaskAgent(taskId: string, workDirOverride?: string | null): Promise<any> {
     const cached = this.agentsByTask.get(taskId);
     if (cached) return cached;
 
@@ -479,9 +490,14 @@ export class KodeAgentAdapter implements AgentAdapter {
       modelConfig.baseUrl = providerEnv.baseUrl;
     }
 
-    const workDir = process.env.KODE_AGENT_WORKDIR
-      ? path.resolve(process.env.KODE_AGENT_WORKDIR)
-      : process.cwd();
+    const configuredWorkDir = extractWorkDirOverride(
+      workDirOverride ? { workdir: workDirOverride } : null,
+      ctx.agent_config,
+    );
+    const workDir = configuredWorkDir
+      || (process.env.KODE_AGENT_WORKDIR
+        ? path.resolve(process.env.KODE_AGENT_WORKDIR)
+        : process.cwd());
 
     const agent = await sdk.Agent.create(
       {
@@ -505,7 +521,8 @@ export class KodeAgentAdapter implements AgentAdapter {
     const startedAt = Date.now();
 
     try {
-      const agent = await this.getOrCreateTaskAgent(input.task_id);
+      const workDirOverride = extractWorkDirOverride(input.observation.state, input.state);
+      const agent = await this.getOrCreateTaskAgent(input.task_id, workDirOverride);
       const latestUserMessage = [...input.observation.messages]
         .reverse()
         .find(m => (m.role || '').toLowerCase() === 'user');
