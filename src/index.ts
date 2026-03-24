@@ -13,7 +13,7 @@ function printHelp(): void {
   console.log('  compare     Compare two run reports');
   console.log('  report      Render a report summary');
   console.log('  compliance  Run adapter compliance checks');
-  console.log('  bridge-agent  Internal benchmark bridge entrypoint');
+  console.log('  bridge-agent  Internal cockpit bridge entrypoint');
   console.log('');
   console.log('Run examples:');
   console.log('  run --benchmark=mock --agent=mock --out=reports/mock.json');

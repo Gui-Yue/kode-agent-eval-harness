@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
 import { createAgentRuntime } from '../agents/runtime';
+import { runCockpitTurn, runWorkspaceTask } from '../cockpit/runtime';
 import type { BenchmarkId, TaskResult, TokenUsage } from '../types';
 
 interface SWEInstance {
@@ -37,6 +38,14 @@ export interface SWEGenerateResult {
   outputFile: string;
   predictions: SWEPrediction[];
   tasks: TaskResult[];
+}
+
+interface SWEAgentRun {
+  text: string;
+  usageTotal: number;
+  error: import('../types').AgentError | null;
+  workspaceStatus?: string;
+  workspaceTrace?: import('../cockpit/contracts').WorkspaceTaskTrace;
 }
 
 function readJson<T>(p: string): T {
@@ -112,6 +121,73 @@ function buildWorkspacePrompt(inst: SWEInstance, workDir: string): string {
   }
 
   return parts.join('\n');
+}
+
+async function runSWEAgentOnce(
+  adapter: ReturnType<typeof createAgentRuntime>['adapter'],
+  inst: SWEInstance,
+  prompt: string,
+  runtimeState: Record<string, unknown>,
+  deadlineMs: number,
+  workspaceDir: string | null,
+): Promise<SWEAgentRun> {
+  if (workspaceDir) {
+    const workspace = await runWorkspaceTask(adapter, {
+      task_id: inst.instance_id,
+      prompt,
+      deadline_ms: deadlineMs,
+      state: runtimeState,
+      workdir: workspaceDir,
+    });
+    if (workspace) {
+      return {
+        text: workspace.text,
+        usageTotal: workspace.usage?.total_tokens ?? 0,
+        error: workspace.error ?? null,
+        workspaceStatus: workspace.status,
+        workspaceTrace: workspace.trace,
+      };
+    }
+  }
+
+  const output = await runCockpitTurn(adapter, {
+    task_id: inst.instance_id,
+    turn_id: 1,
+    observation: {
+      messages: [{ role: 'user', content: prompt }],
+      state: runtimeState,
+      tools: [],
+    },
+    allowed_actions: ['final_answer', 'no_op'],
+    deadline_ms: deadlineMs,
+    state: runtimeState,
+  });
+
+  if (output.error) {
+    return {
+      text: '',
+      usageTotal: output.usage?.total_tokens ?? 0,
+      error: output.error,
+    };
+  }
+
+  if (output.action.type !== 'final_answer') {
+    return {
+      text: output.action.content || '',
+      usageTotal: output.usage?.total_tokens ?? 0,
+      error: {
+        code: 'INVALID_ACTION',
+        message: `invalid action (${output.action.type})`,
+        retryable: false,
+      },
+    };
+  }
+
+  return {
+    text: output.action.content || '',
+    usageTotal: output.usage?.total_tokens ?? 0,
+    error: null,
+  };
 }
 
 function isDockerAvailable(): boolean {
@@ -554,22 +630,18 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
           }
         }
 
-        const output = await adapter.step({
-          task_id: inst.instance_id,
-          turn_id: 1,
-          observation: {
-            messages: [{ role: 'user', content: prompt }],
-            state: runtimeState,
-            tools: [],
-          },
-          allowed_actions: ['final_answer', 'no_op'],
-          deadline_ms: opts.timeoutMs,
-          state: runtimeState,
-        });
+        const output = await runSWEAgentOnce(
+          adapter,
+          inst,
+          prompt,
+          runtimeState,
+          opts.timeoutMs,
+          workspaceDir,
+        );
 
         if (output.error) {
           const duration = Date.now() - t0;
-          const tokenTotal = output.usage?.total_tokens ?? undefined;
+          const tokenTotal = output.usageTotal || undefined;
           tasks.push({
             task_id: inst.instance_id,
             passed: false,
@@ -583,28 +655,18 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
           );
           continue;
         }
-
-        if (output.action.type !== 'final_answer') {
-          const duration = Date.now() - t0;
-          const tokenTotal = output.usage?.total_tokens ?? undefined;
-          tasks.push({
-            task_id: inst.instance_id,
-            passed: false,
-            score: 0,
-            duration_ms: duration,
-            error_code: 'INVALID_ACTION',
-            token_usage: toTokenUsage(tokenTotal),
-          });
-          console.log(`[swe-gen] ${inst.instance_id}: invalid action (${output.action.type})`);
-          continue;
+        if (workspaceDir && output.workspaceTrace) {
+          console.log(
+            `[swe-gen] ${inst.instance_id}: workspace trace tools=${output.workspaceTrace.tool_calls} tool_errors=${output.workspaceTrace.tool_errors} approvals=${output.workspaceTrace.permission_requests} status=${output.workspaceTrace.final_status}`,
+          );
         }
 
-        let rawAnswer = output.action.type === 'final_answer' ? (output.action.content || '') : '';
+        let rawAnswer = output.text || '';
         let patch = workspaceDir ? collectWorkspacePatch(workspaceDir) : '';
-        if (!patch && output.action.type === 'final_answer') {
+        if (!patch) {
           patch = extractPatchText(rawAnswer);
         }
-        let tokenTotal = output.usage?.total_tokens ?? 0;
+        let tokenTotal = output.usageTotal ?? 0;
         let repairAttempted = false;
 
         if (!patch && rawAnswer.trim()) {
@@ -615,29 +677,31 @@ export async function generateSWEPredictions(opts: SWEGenerateOptions): Promise<
           console.log(
             `[swe-gen] ${inst.instance_id}: ${workspaceDir ? 'no workspace diff' : 'invalid patch format'}, requesting retry`,
           );
-          const repair = await adapter.step({
-            task_id: inst.instance_id,
-            turn_id: 2,
-            observation: {
-              messages: [{ role: 'user', content: repairPrompt }],
-              state: runtimeState,
-              tools: [],
-            },
-            allowed_actions: ['final_answer', 'no_op'],
-            deadline_ms: opts.timeoutMs,
-            state: runtimeState,
-          });
+          const repair = await runSWEAgentOnce(
+            adapter,
+            inst,
+            repairPrompt,
+            runtimeState,
+            opts.timeoutMs,
+            workspaceDir,
+          );
 
-          if (!repair.error && repair.action.type === 'final_answer') {
-            rawAnswer = repair.action.content || '';
+          if (workspaceDir && repair.workspaceTrace) {
+            console.log(
+              `[swe-gen] ${inst.instance_id}: repair trace tools=${repair.workspaceTrace.tool_calls} tool_errors=${repair.workspaceTrace.tool_errors} approvals=${repair.workspaceTrace.permission_requests} status=${repair.workspaceTrace.final_status}`,
+            );
+          }
+
+          if (!repair.error) {
+            rawAnswer = repair.text || '';
             patch = workspaceDir ? collectWorkspacePatch(workspaceDir) : '';
             if (!patch) {
               patch = extractPatchText(rawAnswer);
             }
           }
 
-          if (typeof repair.usage?.total_tokens === 'number' && Number.isFinite(repair.usage.total_tokens)) {
-            tokenTotal += repair.usage.total_tokens;
+          if (typeof repair.usageTotal === 'number' && Number.isFinite(repair.usageTotal)) {
+            tokenTotal += repair.usageTotal;
           }
         }
 

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import type { AgentAdapter } from './interface';
+import type { CockpitAdapter } from './interface';
+import type { CockpitCapability, WorkspaceTaskInput, WorkspaceTaskResult } from '../cockpit/contracts';
 import type { AgentError, AgentMetadata, RunContext, StepInput, StepOutput } from '../types';
 
 type AnyFn = (...args: any[]) => any;
@@ -79,10 +80,39 @@ function resolveProviderEnv(provider: string): { apiKey?: string; baseUrl?: stri
     };
   }
 
+  if (p === 'glm') {
+    return {
+      apiKey: process.env.GLM_API_KEY || process.env.OPENAI_API_KEY || process.env.KODE_AGENT_API_KEY,
+      baseUrl: process.env.GLM_BASE_URL || process.env.OPENAI_BASE_URL || process.env.KODE_AGENT_BASE_URL,
+    };
+  }
+
   return {
     apiKey: process.env.OPENAI_API_KEY || process.env.KODE_AGENT_API_KEY,
     baseUrl: process.env.OPENAI_BASE_URL || process.env.KODE_AGENT_BASE_URL,
   };
+}
+
+function inferProvider(provider: string, model: string): string {
+  const normalizedProvider = (provider || '').trim().toLowerCase() || 'openai';
+  if (normalizedProvider !== 'openai') return normalizedProvider;
+
+  const normalizedModel = (model || '').trim().toLowerCase();
+  const baseUrl = (
+    process.env.OPENAI_BASE_URL
+    || process.env.GLM_BASE_URL
+    || process.env.KODE_AGENT_BASE_URL
+    || ''
+  ).toLowerCase();
+
+  if (normalizedModel.startsWith('glm-') || normalizedModel.startsWith('glm/')) {
+    return 'glm';
+  }
+  if (baseUrl.includes('bigmodel.cn') || baseUrl.includes('open.bigmodel.cn')) {
+    return 'glm';
+  }
+
+  return normalizedProvider;
 }
 
 function extractWorkDirOverride(...sources: Array<Record<string, unknown> | null | undefined>): string | null {
@@ -273,7 +303,7 @@ function loadKodeSdkFromEntries(entries: string[]): { sdk: KodeSdkModule; source
   );
 }
 
-export class KodeAgentAdapter implements AgentAdapter {
+export class KodeAgentAdapter implements CockpitAdapter {
   private readonly autoInstall: boolean;
   private readonly adapterId: 'kode-agent' | 'kode-sdk' | 'kode-agent-sdk';
 
@@ -308,6 +338,15 @@ export class KodeAgentAdapter implements AgentAdapter {
       },
       supported_benchmarks: ['mock', 'swe', 'tb2', 'tau'],
     };
+  }
+
+  describeCockpitCapabilities(): CockpitCapability[] {
+    return [
+      { kind: 'dialogue', description: 'Persistent multi-turn agent session.' },
+      { kind: 'workspace', description: 'Can operate directly inside a local repository workdir.' },
+      { kind: 'local_tools', description: 'Uses builtin filesystem, shell, and todo tools inside the runtime.' },
+      { kind: 'shell', description: 'Can execute shell commands through builtin bash tools.' },
+    ];
   }
 
   private resolveDefaultEntries(): string[] {
@@ -513,16 +552,17 @@ export class KodeAgentAdapter implements AgentAdapter {
 
     const { ctx, sdk, deps } = this.ensureReady();
     const resolved = resolveModel(ctx.model);
-    const providerEnv = resolveProviderEnv(resolved.provider);
+    const provider = inferProvider(resolved.provider, resolved.model);
+    const providerEnv = resolveProviderEnv(provider);
 
     if (!providerEnv.apiKey) {
       throw new Error(
-        `Missing API key for provider=${resolved.provider}. Set ${resolved.provider.toUpperCase()}_API_KEY or KODE_AGENT_API_KEY.`,
+        `Missing API key for provider=${provider}. Set ${provider.toUpperCase()}_API_KEY or KODE_AGENT_API_KEY.`,
       );
     }
 
     const modelConfig: Record<string, unknown> = {
-      provider: resolved.provider,
+      provider,
       model: resolved.model,
       apiKey: providerEnv.apiKey,
       temperature: 0,
@@ -545,6 +585,9 @@ export class KodeAgentAdapter implements AgentAdapter {
       {
         templateId: this.templateId,
         modelConfig,
+        overrides: {
+          permission: { mode: 'auto' },
+        },
         sandbox: {
           kind: 'local',
           workDir,
@@ -559,39 +602,131 @@ export class KodeAgentAdapter implements AgentAdapter {
     return agent;
   }
 
+  private async runPrompt(
+    taskId: string,
+    prompt: string,
+    deadlineMs: number,
+    workDirOverride?: string | null,
+  ): Promise<{ text: string; status: string; usage: StepOutput['usage']; trace: WorkspaceTaskResult['trace'] }> {
+    const startedAt = Date.now();
+    const agent = await this.getOrCreateTaskAgent(taskId, workDirOverride);
+
+    let inputTokens = 0;
+    let outputTokens = 0;
+    const trace = {
+      tool_calls: 0,
+      tool_errors: 0,
+      permission_requests: 0,
+      final_status: 'completed',
+    };
+
+    const offToken = typeof agent.on === 'function'
+      ? agent.on('token_usage', (evt: any) => {
+          const inTok = Number(evt?.inputTokens);
+          const outTok = Number(evt?.outputTokens);
+          if (Number.isFinite(inTok) && inTok > 0) inputTokens += inTok;
+          if (Number.isFinite(outTok) && outTok > 0) outputTokens += outTok;
+        })
+      : () => undefined;
+
+    const offToolExecuted = typeof agent.on === 'function'
+      ? agent.on('tool_executed', () => {
+          trace.tool_calls += 1;
+        })
+      : () => undefined;
+
+    const offError = typeof agent.on === 'function'
+      ? agent.on('error', (evt: any) => {
+          const phase = String(evt?.phase || '');
+          if (phase === 'tool') trace.tool_errors += 1;
+        })
+      : () => undefined;
+
+    const offPermission = typeof agent.on === 'function'
+      ? agent.on('permission_required', async (evt: any) => {
+          trace.permission_requests += 1;
+          try {
+            if (typeof evt?.respond === 'function') {
+              await evt.respond('allow', { note: 'Auto-allowed by evaluation harness.' });
+            }
+          } catch {
+            // best effort auto approval
+          }
+        })
+      : () => undefined;
+
+    let result: any;
+    try {
+      result = await withTimeout(agent.complete(prompt), Math.max(1, deadlineMs || 1));
+    } finally {
+      offToken();
+      offToolExecuted();
+      offError();
+      offPermission();
+    }
+
+    const text = typeof result?.text === 'string' ? result.text : '';
+    const status = typeof result?.status === 'string' ? result.status : 'ok';
+    trace.final_status = status;
+
+    return {
+      text,
+      status,
+      trace,
+      usage: {
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        cache_tokens: 0,
+        total_tokens: inputTokens + outputTokens,
+        latency_ms: Date.now() - startedAt,
+      },
+    };
+  }
+
+  async runWorkspaceTask(input: WorkspaceTaskInput): Promise<WorkspaceTaskResult> {
+    try {
+      const result = await this.runPrompt(input.task_id, input.prompt, input.deadline_ms, input.workdir);
+      return {
+        status: result.trace?.tool_calls ? 'completed' : (result.status === 'paused' ? 'paused' : 'message_only'),
+        text: result.text,
+        usage: result.usage,
+        trace: result.trace,
+        error: null,
+      };
+    } catch (err) {
+      return {
+        status: 'message_only',
+        text: '',
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_tokens: 0,
+          total_tokens: 0,
+          latency_ms: null,
+        },
+        trace: {
+          tool_calls: 0,
+          tool_errors: 0,
+          permission_requests: 0,
+          final_status: 'error',
+        },
+        error: normalizeError(err),
+      };
+    }
+  }
+
   async step(input: StepInput): Promise<StepOutput> {
     const startedAt = Date.now();
-
     try {
       const workDirOverride = extractWorkDirOverride(input.observation.state, input.state);
-      const agent = await this.getOrCreateTaskAgent(input.task_id, workDirOverride);
       const latestUserMessage = [...input.observation.messages]
         .reverse()
         .find(m => (m.role || '').toLowerCase() === 'user');
       const prompt = latestUserMessage?.content
         || input.observation.messages[input.observation.messages.length - 1]?.content
         || '';
-
-      let inputTokens = 0;
-      let outputTokens = 0;
-
-      const off = typeof agent.on === 'function'
-        ? agent.on('token_usage', (evt: any) => {
-            const inTok = Number(evt?.inputTokens);
-            const outTok = Number(evt?.outputTokens);
-            if (Number.isFinite(inTok) && inTok > 0) inputTokens += inTok;
-            if (Number.isFinite(outTok) && outTok > 0) outputTokens += outTok;
-          })
-        : () => undefined;
-
-      let result: any;
-      try {
-        result = await withTimeout(agent.complete(prompt), Math.max(1, input.deadline_ms || 1));
-      } finally {
-        off();
-      }
-
-      const text = typeof result?.text === 'string' ? result.text : '';
+      const result = await this.runPrompt(input.task_id, prompt, input.deadline_ms, workDirOverride);
+      const text = result.text;
       const action = pickAction(input.allowed_actions, text, input.observation.tools);
 
       return {
@@ -600,13 +735,7 @@ export class KodeAgentAdapter implements AgentAdapter {
         state_delta: {
           sdk_source: this.sdkSource,
         },
-        usage: {
-          input_tokens: inputTokens,
-          output_tokens: outputTokens,
-          cache_tokens: 0,
-          total_tokens: inputTokens + outputTokens,
-          latency_ms: Date.now() - startedAt,
-        },
+        usage: result.usage,
         error: null,
       };
     } catch (err) {

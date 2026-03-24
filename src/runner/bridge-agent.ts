@@ -1,5 +1,6 @@
 import type { StepInput, StepOutput } from '../types';
 import { createAgentRuntime } from '../agents/runtime';
+import { getCockpitCapabilities, runCockpitTurn } from '../cockpit/runtime';
 
 export interface BridgeAgentOptions {
   mode: 'tau' | 'tb2' | 'generic';
@@ -106,6 +107,7 @@ export async function bridgeAgentCommand(opts: BridgeAgentOptions): Promise<void
   const raw = await readStdin();
   const payload = raw.trim() ? JSON.parse(raw) as Record<string, unknown> : {};
   const { adapter, manifest } = createAgentRuntime(opts.agent);
+  const cockpitCaps = getCockpitCapabilities(adapter);
 
   const tools = normalizeTools(payload.tools);
   const allowedActions = tools.length > 0
@@ -139,11 +141,12 @@ export async function bridgeAgentCommand(opts: BridgeAgentOptions): Promise<void
     agent_config: {
       bridge_mode: opts.mode,
       manifest_source: manifest.source,
+      cockpit_capabilities: cockpitCaps.map(cap => cap.kind),
     },
   });
 
   try {
-    const output = await adapter.step(input);
+    const output = await runCockpitTurn(adapter, input);
     process.stdout.write(JSON.stringify(formatAction(output)));
   } finally {
     await adapter.close();

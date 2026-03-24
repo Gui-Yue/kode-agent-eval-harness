@@ -1,148 +1,213 @@
-# Runtime Under Test Refactor Design
+# Cockpit / Vehicle Refactor Design
 
-## Goal
+## Problem Statement
 
-Refactor the harness from a repository-internal adapter switch into a protocol-oriented integration layer so external agents can be evaluated through the same interface across:
+This repository should not primarily measure naked model quality.
 
-- SWE-bench generation + official scoring
+The evaluation target is the runtime "vehicle" that the LLM drives:
+
+- the LLM is the driver
+- the runtime is the vehicle
+- the benchmark is the destination plus scoring rules
+- this repository is the cockpit that mounts a destination onto a vehicle
+
+Under this framing, the harness must expose a stable cockpit interface that different vehicles can plug into, while keeping official benchmark scoring unchanged.
+
+## Design Goal
+
+Refactor the project from a model-step adapter layer into a cockpit-oriented runtime interface that can evaluate different vehicles across:
+
+- SWE-bench-Verified
 - TAU2 official runner
-- Terminal Bench 2.0 official runner
-- compliance and mock smoke tests
+- Terminal Bench 2 official runner
+- mock / compliance smoke suites
 
-## Current Problems
+The harness should be hot-pluggable:
 
-The current codebase has three incompatible integration styles:
+- a new vehicle should be addable by implementing the cockpit contract
+- benchmarks should target the same cockpit contract, not a vehicle-specific shim
+- official scorers remain the source of truth for pass/fail
 
-1. Local TypeScript adapter classes for `mock` and `kode-*`
-2. A Kode-specific TAU2 Python plugin plus Node bridge
-3. TB2 integration that only forwards official Harbor agent names
+## Core Mental Model
 
-This causes three structural issues:
+### Cockpit
 
-- external agents cannot plug in without editing this repository
-- benchmark integrations are inconsistent and partially hardcoded to Kode
-- TAU/TB2 do not share the same agent contract used by mock/SWE/compliance
+The cockpit is the harness-side abstraction layer. It presents the task and any benchmark-hosted capabilities to the vehicle.
+
+Today the cockpit needs to model four first-class capability families:
+
+1. dialogue
+2. hosted tools
+3. workspace access
+4. runtime-local tools
+
+### Vehicle
+
+A vehicle is an agent runtime implementation such as `kode-agent-sdk`.
+
+The vehicle decides how the driver uses:
+
+- conversation memory
+- local filesystem tools
+- shell tools
+- hosted benchmark tools
+- execution policy
+- retries / internal planning / tool sequencing
+
+### Destination
+
+Each benchmark defines the destination differently:
+
+- SWE: modify the repository so official verifier passes
+- TAU2: solve the official interactive task
+- TB2: solve the official terminal task in Harbor
+
+The harness should not own the destination semantics. It only mounts them.
 
 ## Target Architecture
 
-The harness will expose one stable runtime contract, `agent-runtime/v1`, and every benchmark bridge will evaluate the runtime under test through that contract.
+### Layering
 
-### Layers
+1. Manifest resolution
+2. Vehicle transport
+3. Cockpit contract
+4. Benchmark bridge
+5. Official scorer / runner
 
-1. Agent manifest resolution
-2. Agent runtime transport
-3. Benchmark-specific bridge
+### Manifest
 
-### Runtime Manifest
+Each vehicle is resolved from:
 
-Each runtime-under-test is resolved from either:
+- a built-in manifest like `mock` or `kode-agent-sdk`
+- a checked-in manifest file
+- a user-supplied manifest path
 
-- a built-in manifest name like `mock`
-- a tracked manifest file like `agents/kode-sdk.json`
-- a user-supplied manifest path like `./agents/my-agent.json`
+The manifest identifies transport and benchmark support, but the behavioral contract is the cockpit contract.
 
-Manifest example:
+## Cockpit Contract
 
-```json
-{
-  "api_version": "agent-runtime/v1",
-  "name": "my-agent",
-  "transport": {
-    "kind": "stdio",
-    "command": "python3",
-    "args": ["./agent_server.py"],
-    "cwd": "."
-  },
-  "supported_benchmarks": ["mock", "swe", "tb2", "tau"]
-}
-```
+The existing `init / step / close` path remains as the lowest common denominator for turn-based runners.
 
-### Runtime Contract
+The refactor adds an explicit cockpit layer above that with two usage modes:
 
-The harness-side runtime-under-test contract remains:
+### 1. Conversation Turn
 
-- `metadata()`
-- `init(ctx)`
-- `step(input)`
-- `close()`
+Used by TAU2 / TB2 / compliance / mock.
 
-For external agents, the default transport is `stdio` with newline-delimited JSON-RPC messages.
+The cockpit provides:
 
-Required RPC methods:
+- dialogue history
+- benchmark-hosted tools
+- benchmark state
+- deadline
 
-- `agent.handshake`
-- `run.init`
-- `run.step`
-- `run.close`
+The vehicle returns:
 
-The protocol payloads reuse the repository types already defined in `src/types.ts`.
+- assistant message
+- tool request
+- usage
+- terminal / error state
 
-### Benchmark Bridges
+### 2. Workspace Task
 
-#### SWE
+Used by SWE and any future repo-edit benchmark.
 
-- materialize the benchmark repository into a per-instance local workspace
-- call the runtime contract against that workspace so the runtime under test edits files directly
-- collect the candidate fix from the resulting git diff
-- only fall back to direct patch text extraction when the runtime does not modify the workspace
-- score with the official docker evaluation path
+The cockpit provides:
 
-#### TAU2
+- task prompt
+- workspace root
+- benchmark state
+- deadline
 
-- use a generic TAU2 plugin module instead of a Kode-specific plugin
-- the plugin converts TAU messages/tools into `StepInput`
-- each TAU turn calls the harness `bridge-agent` CLI, which resolves the configured agent manifest and executes one runtime step
-- bridge output is converted back into either a TAU message or a TAU tool call
+The vehicle is expected to operate directly in the workspace and return:
 
-#### TB2
+- final text summary
+- usage
+- trace metadata
+- completion status
 
-- keep the official Harbor runner
-- when the requested agent is a harness agent manifest, run Harbor with `--agent-import-path`
-- the imported Python agent performs an action loop:
-  - present shell execution as a tool to the harness agent runtime
-  - call the harness `bridge-agent` CLI per turn
-  - execute `exec` tool calls against Harbor `BaseEnvironment`
-  - stop on final answer or step budget exhaustion
+The score still comes from the official verifier via git diff -> official evaluation.
 
-This keeps official TB2 orchestration and scoring while routing decisions through the shared interface.
+## Why This Is More Fundamental Than Patch Generation
 
-## Compatibility Strategy
+Patch generation measures whether the model can emit a valid patch in the benchmark-owned output format.
 
-### Built-ins
+Workspace-task execution measures whether the vehicle gives the driver a usable environment:
 
-Existing built-in runtime implementations remain available through manifests:
+- can it inspect files
+- can it edit safely
+- can it run focused commands
+- can it maintain state over the attempt
+- can it recover from bad intermediate steps
 
-- `mock`
-- `kode-agent`
-- `kode-sdk`
+That is much closer to the "vehicle quality" we actually want.
 
-### Existing CLI Behavior
+## Benchmark Mapping
 
-- `mock` and `swe` still use `--agent`
-- `tb2` still supports official Harbor agent names through `--tb2-agent`
-- `tau` still supports official TAU agent cores through `--tau-agent-core`
-- when a harness runtime ref is supplied for `tb2` or `tau`, the harness interface path is used
+### SWE
 
-## Phase 1 Implementation
+SWE should use the workspace-task cockpit mode.
 
-This first implementation adds:
+Flow:
 
-1. manifest-based resolution for built-in and external runtimes
-2. a `stdio` JSON-RPC runtime client
-3. a `bridge-agent` CLI entrypoint for benchmark adapters
-4. generic TAU2 and TB2 Python bridges
-5. SWE/compliance/mock migration to the new runtime resolver
+1. materialize `/testbed` from official SWE image into a local temp workspace
+2. call the vehicle through `runWorkspaceTask`
+3. collect git diff from the workspace
+4. fall back to patch text extraction only as compatibility fallback
+5. score with official SWE evaluation
 
-## Known Constraints
+### TAU2
 
-1. The benchmark-side TAU/TB2 bridges are stateless per bridge invocation and rely on full message history plus tool observations, not long-lived in-process agent state.
-2. TB2 custom-agent behavior depends on Harbor's external agent API and is implemented defensively because Harbor types are not vendored in this repository.
-3. External `stdio` runtimes must implement the JSON-RPC contract explicitly; this refactor does not yet scaffold runtime servers automatically.
-4. SWE workspace execution assumes the runtime can honor workspace hints from the benchmark state, such as `workdir` / `repo_root`, or otherwise act on the checked-out repository directly.
+TAU2 should use the conversation-turn cockpit mode.
 
-## Next Steps After Phase 1
+Flow:
 
-1. add protocol JSON schemas under `schema/protocol/`
-2. add `agent inspect` and `agent validate` CLI commands
-3. add an example external `stdio` agent server
-4. expand compliance to validate protocol transports directly
+1. official TAU2 runner owns task execution and scoring
+2. plugin converts TAU history + tool schema into cockpit turn input
+3. cockpit resolves vehicle and executes one turn
+4. plugin maps output back to TAU message or TAU tool call
+
+### TB2
+
+TB2 should also use the conversation-turn cockpit mode.
+
+Flow:
+
+1. Harbor remains the official runner
+2. Harbor exposes shell execution as a hosted cockpit tool
+3. cockpit resolves vehicle and executes the turn
+4. Harbor bridge executes tool calls in the official environment
+5. Harbor still owns result files and final scoring
+
+## Current Phase Implementation
+
+This phase introduces the cockpit vocabulary into the codebase and starts routing benchmarks through it:
+
+1. cockpit contracts are defined explicitly in TypeScript
+2. adapters can advertise cockpit capabilities
+3. adapters can optionally implement `runWorkspaceTask`
+4. SWE prefers `runWorkspaceTask`
+5. TAU / TB2 bridge code runs through the cockpit turn helper instead of calling adapters directly
+
+`kode-agent-sdk` is the first default vehicle implementation for this contract.
+
+## Compatibility Notes
+
+- existing turn-based adapters still work through `step`
+- external stdio transports are still supported
+- official TAU2 / TB2 / SWE scoring paths remain unchanged
+- patch extraction is retained only as a fallback, not the architectural center
+
+## Known Gaps
+
+1. The stdio RPC schema still exposes only the turn-based surface; workspace-task RPC has not been added yet.
+2. TAU2 / TB2 still mount hosted benchmark tools through per-turn bridge processes rather than a long-lived cockpit daemon.
+3. Capability descriptors are informational today; benchmark-side negotiation is still minimal.
+4. More trace and observability data should be persisted for debugging vehicle quality regressions.
+
+## Immediate Next Steps
+
+1. extend stdio runtime protocol with workspace-task support
+2. add capability negotiation / validation commands
+3. persist cockpit traces into artifacts for GH Actions debugging
+4. add more default vehicles beyond `kode-agent-sdk`
