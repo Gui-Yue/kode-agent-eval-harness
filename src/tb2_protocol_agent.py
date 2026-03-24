@@ -1,4 +1,4 @@
-"""Harbor external agent backed by the harness bridge-agent CLI."""
+"""TB2 solve bridge: vehicle solve path under the official Harbor/TB2 scorer."""
 
 from __future__ import annotations
 
@@ -29,7 +29,14 @@ class ProtocolHarnessAgent(BaseAgent):
 
     async def run(self, instruction, environment, context):  # type: ignore[no-untyped-def]
         max_steps = max(1, int(os.getenv('EVAL_HARNESS_TB2_MAX_STEPS') or '48'))
-        timeout_ms = max(1000, int(os.getenv('EVAL_HARNESS_TIMEOUT_MS') or '300000'))
+        timeout_ms = max(
+            1000,
+            int(
+                os.getenv('EVAL_HARNESS_SOLVE_TIMEOUT_MS')
+                or os.getenv('EVAL_HARNESS_TIMEOUT_MS')
+                or '300000'
+            ),
+        )
 
         messages: list[dict[str, Any]] = [
             {'role': 'user', 'content': str(instruction or '')},

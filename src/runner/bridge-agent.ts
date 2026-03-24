@@ -1,6 +1,6 @@
 import type { StepInput, StepOutput } from '../types';
 import { createAgentRuntime } from '../agents/runtime';
-import { getCockpitCapabilities, runCockpitTurn } from '../cockpit/runtime';
+import { getCockpitCapabilities, solveConversationTurn } from '../cockpit/runtime';
 
 export interface BridgeAgentOptions {
   mode: 'tau' | 'tb2' | 'generic';
@@ -146,7 +146,7 @@ export async function bridgeAgentCommand(opts: BridgeAgentOptions): Promise<void
   });
 
   try {
-    const output = await runCockpitTurn(adapter, input);
+    const output = await solveConversationTurn(adapter, input);
     process.stdout.write(JSON.stringify(formatAction(output)));
   } finally {
     await adapter.close();

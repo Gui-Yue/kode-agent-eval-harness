@@ -28,6 +28,10 @@ export interface TAUOfficialResult {
   tasks: TaskResult[];
 }
 
+export async function scoreWithOfficialTauRunner(rawOpts: TAUOfficialOptions): Promise<TAUOfficialResult> {
+  return runTAUOfficialBenchmark(rawOpts);
+}
+
 interface RunnerSpec {
   cmd: string;
   argsPrefix: string[];

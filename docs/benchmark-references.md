@@ -17,7 +17,7 @@ This harness design references operational patterns from:
 
 These references informed:
 
-- official harness-first integration strategy
+- solve-by-vehicle / score-by-official-runner integration strategy
 - result/artifact centric design
 - adapter decoupling and compliance gating
 - smoke/full CI profile split

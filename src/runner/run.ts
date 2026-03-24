@@ -6,8 +6,8 @@ import { createAgentRuntime } from '../agents/runtime';
 import { createBenchmarkDriver } from '../benchmarks';
 import { generateSWEPredictions } from '../benchmarks/swe-generate';
 import { runSWEOfficialBenchmark } from '../benchmarks/swe-official';
-import { runTB2OfficialBenchmark } from '../benchmarks/tb2-official';
-import { runTAUOfficialBenchmark } from '../benchmarks/tau-official';
+import { scoreWithOfficialTB2Runner } from '../benchmarks/tb2-official';
+import { scoreWithOfficialTauRunner } from '../benchmarks/tau-official';
 import type { BenchmarkId, TaskResult, UnifiedRunReport } from '../types';
 import { writeJson, loadJsonSchema } from '../utils/io';
 
@@ -336,7 +336,7 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
       return { dataset: r.dataset, tasks: r.tasks };
     }
     case 'tb2': {
-      const r = runTB2OfficialBenchmark({
+      const r = scoreWithOfficialTB2Runner({
         dataset: opts.tb2Dataset,
         model: opts.model,
         agent: opts.tb2Agent,
@@ -352,7 +352,7 @@ async function runByBenchmark(opts: RunOptions): Promise<{ dataset: string; task
       return { dataset: r.dataset, tasks: r.tasks };
     }
     case 'tau': {
-      const r = await runTAUOfficialBenchmark({
+      const r = await scoreWithOfficialTauRunner({
         domain: opts.tauDomain,
         numTrials: opts.tauNumTrials,
         provider: opts.provider,

@@ -173,24 +173,30 @@ Flow:
 
 ### TAU2
 
-TAU2 should use the conversation-turn cockpit mode.
+TAU2 should use:
+
+- `solveConversationTurn(...)` for solve
+- `scoreWithOfficialTauRunner(...)` for score
 
 Flow:
 
 1. official TAU2 runner owns task execution and scoring
 2. plugin converts TAU history + tool schema into cockpit turn input
-3. cockpit resolves vehicle and executes one turn
+3. cockpit resolves vehicle and executes one solve turn
 4. plugin maps output back to TAU message or TAU tool call
 
 ### TB2
 
-TB2 should also use the conversation-turn cockpit mode.
+TB2 should use:
+
+- `solveConversationTurn(...)` for solve
+- `scoreWithOfficialTB2Runner(...)` for score
 
 Flow:
 
 1. Harbor remains the official runner
 2. Harbor exposes shell execution as a hosted cockpit tool
-3. cockpit resolves vehicle and executes the turn
+3. cockpit resolves vehicle and executes one solve turn
 4. Harbor bridge executes tool calls in the official environment
 5. Harbor still owns result files and final scoring
 

@@ -2,6 +2,11 @@
 
 A pluggable evaluation harness focused on **agent system capability** instead of model-only ranking.
 
+The core architectural rule is:
+
+- `solve` belongs to the runtime / vehicle under test
+- `score` belongs to the official benchmark runner / verifier
+
 ## Quick Start
 
 ```bash
@@ -38,6 +43,8 @@ Shared runtime variables:
 - `EVAL_MODEL` (default `openai/glm-5`)
 - `OPENAI_BASE_URL` (if using OpenAI-compatible endpoints)
 - `BENCHMARK_DOCKER_PROXY` (optional)
+- `EVAL_SOLVE_TIMEOUT_MS` (optional default solve timeout for vehicle-side execution)
+- `EVAL_VERIFY_TIMEOUT_MS` (optional default verify timeout for official scoring, currently used by SWE)
 
 Benchmark-specific variables:
 
@@ -70,9 +77,9 @@ Three built-in runtime ids are available:
 
 The harness now treats the evaluated object as a runtime under test, not a benchmark-owned agent implementation.
 
-- SWE keeps official prediction scoring, but patch generation goes through `--agent=<runtime-ref>`
-- TAU keeps official environments and reward scoring, but conversation/tool decisions can be delegated through `--agent=<runtime-ref>`
-- TB2 keeps official Harbor orchestration and verifier logic, but task execution can be delegated through `--agent=<runtime-ref>`
+- SWE: runtime-under-test does `solveTaskInWorkspace`, official SWE verifier does scoring
+- TAU: runtime-under-test does conversation solve, official TAU2 runner does scoring
+- TB2: runtime-under-test does terminal solve, official Harbor/TB2 runner does scoring
 
 Runtime refs can be:
 
@@ -128,6 +135,8 @@ npm run run -- \
   --benchmark=swe \
   --agent=kode-agent-sdk \
   --model=openai/glm-5 \
+  --solve-timeout-ms=900000 \
+  --verify-timeout-ms=900000 \
   --swe-generate-only=true \
   --swe-max-instances=2 \
   --out=reports/swe-kode-agent-sdk-generate.json
@@ -160,6 +169,8 @@ This writes generated predictions to `tests/tmp/swe-predictions.generated.json` 
 npm run run -- \
   --benchmark=swe \
   --agent=mock \
+  --solve-timeout-ms=900000 \
+  --verify-timeout-ms=900000 \
   --swe-auto-generate=true \
   --swe-max-instances=2 \
   --out=reports/swe-run.json
@@ -197,8 +208,9 @@ Prediction file formats supported:
 ```bash
 npm run run -- \
   --benchmark=tb2 \
+  --agent=kode-agent-sdk \
   --model=openai/glm-5 \
-  --tb2-agent=oracle \
+  --solve-timeout-ms=300000 \
   --tb2-runner=uvx \
   --tb2-jobs-dir=tests/tmp/jobs \
   --out=reports/tb2-run.json
@@ -209,9 +221,10 @@ npm run run -- \
 ```bash
 npm run run -- \
   --benchmark=tau \
+  --agent=kode-agent-sdk \
   --provider=openai \
   --model=glm-5 \
-  --tau-agent-core=llm_agent \
+  --solve-timeout-ms=300000 \
   --tau-domain=airline \
   --num-trials=1 \
   --tau-data-dir=tests/tmp/tau2-data \
@@ -234,8 +247,8 @@ npm run run -- \
 
 Current built-in plugin files:
 - `src/sitecustomize.py`: Python startup hook that auto-imports plugin module.
-- `src/tau2_protocol_agent_plugin.py`: generic TAU2 plugin that delegates each turn to the harness runtime bridge.
-- `src/tb2_protocol_agent.py`: Harbor custom agent that delegates shell decisions to the harness runtime bridge.
+- `src/tau2_protocol_agent_plugin.py`: TAU2 solve bridge; official TAU2 runner still owns scoring.
+- `src/tb2_protocol_agent.py`: Harbor/TB2 solve bridge; official Harbor/TB2 runner still owns scoring.
 
 Requirements for TAU custom core:
 - Node `node` command available.

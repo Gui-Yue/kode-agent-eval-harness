@@ -23,6 +23,10 @@ export interface TB2OfficialResult {
   unknown: number;
 }
 
+export function scoreWithOfficialTB2Runner(rawOpts: TB2OfficialOptions): TB2OfficialResult {
+  return runTB2OfficialBenchmark(rawOpts);
+}
+
 interface RunnerSpec {
   cmd: string;
   argsPrefix: string[];

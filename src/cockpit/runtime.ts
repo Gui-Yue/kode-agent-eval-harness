@@ -19,6 +19,10 @@ export async function runCockpitTurn(adapter: AgentAdapter, input: StepInput): P
   return adapter.step(input);
 }
 
+export async function solveConversationTurn(adapter: AgentAdapter, input: StepInput): Promise<StepOutput> {
+  return runCockpitTurn(adapter, input);
+}
+
 export function supportsWorkspaceTaskSolving(
   adapter: AgentAdapter,
 ): adapter is CockpitAdapter & (Required<Pick<CockpitAdapter, 'solveTaskInWorkspace'>> | Required<Pick<CockpitAdapter, 'runWorkspaceTask'>>) {

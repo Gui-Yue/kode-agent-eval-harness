@@ -15,6 +15,10 @@ on:
         description: "Override TAU num-trials (empty uses repo var EVAL_TAU_NUM_TRIALS, default 1)"
         required: false
         default: ""
+      solve_timeout_ms:
+        description: "Override vehicle solve timeout in ms (empty uses repo var EVAL_SOLVE_TIMEOUT_MS)"
+        required: false
+        default: ""
       agent_core:
         description: "Optional fallback to official TAU agent core when runtime_ref is empty"
         required: false
@@ -46,6 +50,7 @@ jobs:
       EVAL_RUNTIME_REF: ${{ vars.EVAL_RUNTIME_REF }}
       EVAL_TAU_DOMAIN: ${{ vars.EVAL_TAU_DOMAIN }}
       EVAL_TAU_NUM_TRIALS: ${{ vars.EVAL_TAU_NUM_TRIALS }}
+      EVAL_SOLVE_TIMEOUT_MS: ${{ vars.EVAL_SOLVE_TIMEOUT_MS }}
       EVAL_TAU_AGENT_CORE: ${{ vars.EVAL_TAU_AGENT_CORE }}
       EVAL_AGENT_CORE: ${{ vars.EVAL_AGENT_CORE }}
       BENCHMARK_PROVIDER: ${{ vars.EVAL_PROVIDER }}
@@ -95,12 +100,17 @@ jobs:
           RUNTIME_REF_INPUT="${{ github.event.inputs.runtime_ref }}"
           DOMAIN_INPUT="${{ github.event.inputs.domain }}"
           TRIALS_INPUT="${{ github.event.inputs.num_trials }}"
+          SOLVE_TIMEOUT_INPUT="${{ github.event.inputs.solve_timeout_ms }}"
           AGENT_CORE_INPUT="${{ github.event.inputs.agent_core }}"
 
           RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-${EVAL_AGENT_CORE:-kode-agent-sdk}}}"
           DOMAIN="${DOMAIN_INPUT:-${EVAL_TAU_DOMAIN:-airline}}"
           TRIALS="${TRIALS_INPUT:-${EVAL_TAU_NUM_TRIALS:-1}}"
+          SOLVE_TIMEOUT="${SOLVE_TIMEOUT_INPUT:-${EVAL_SOLVE_TIMEOUT_MS:-}}"
           AGENT_CORE="${AGENT_CORE_INPUT:-${EVAL_TAU_AGENT_CORE:-llm_agent}}"
+          if [[ "$SOLVE_TIMEOUT" =~ ^[0-9]+$ ]] && [[ "$SOLVE_TIMEOUT" -gt 0 ]]; then
+            export EVAL_HARNESS_SOLVE_TIMEOUT_MS="$SOLVE_TIMEOUT"
+          fi
 
           if [[ -n "$RUNTIME_REF" ]]; then
             CMD=(npm run run -- --benchmark=tau --agent="$RUNTIME_REF" --provider="$PROVIDER" --model="$MODEL" --tau-domain="$DOMAIN" --num-trials="$TRIALS" --tau-data-dir=tests/tmp/tau2-data --out=reports/tau-official.json)

@@ -1,4 +1,4 @@
-"""TAU2 plugin: register a harness bridge backed agent."""
+"""TAU2 solve bridge: vehicle solve path under the official TAU2 scorer."""
 
 from __future__ import annotations
 
@@ -85,7 +85,11 @@ def _invoke_harness_bridge(*, model: str | None, tools: list[Any], messages: lis
         'messages': [_to_bridge_message(m) for m in messages],
     }
 
-    timeout_ms = int(os.getenv('EVAL_HARNESS_TIMEOUT_MS') or '300000')
+    timeout_ms = int(
+        os.getenv('EVAL_HARNESS_SOLVE_TIMEOUT_MS')
+        or os.getenv('EVAL_HARNESS_TIMEOUT_MS')
+        or '300000'
+    )
     cmd = [
         _tsx_path(),
         str(_repo_root() / 'src' / 'index.ts'),
@@ -111,7 +115,7 @@ def _invoke_harness_bridge(*, model: str | None, tools: list[Any], messages: lis
 
 
 class HarnessLLMAgent(LLMAgent):
-    """Drop-in LLMAgent replacement backed by harness bridge-agent."""
+    """Drop-in LLMAgent replacement for the solve phase under TAU2 official scoring."""
 
     def generate_next_message(self, message, state):  # type: ignore[override]
         if message.__class__.__name__ == 'MultiToolMessage':
