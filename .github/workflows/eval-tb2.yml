@@ -109,8 +109,8 @@ jobs:
           TB2_DATASET="${TB2_DATASET_INPUT:-${EVAL_TB2_DATASET:-terminal-bench@2.0}}"
           TB2_RUNNER="${TB2_RUNNER_INPUT:-${EVAL_TB2_RUNNER:-uvx}}"
           SOLVE_TIMEOUT="${SOLVE_TIMEOUT_INPUT:-${EVAL_SOLVE_TIMEOUT_MS:-}}"
-          TB2_PYTHON="${EVAL_TB2_PYTHON:-3.12}"
-          TB2_DOCKER_IMAGE="${EVAL_TB2_DOCKER_IMAGE:-ghcr.io/astral-sh/uv:python3.12-bookworm}"
+          TB2_PYTHON="${EVAL_TB2_PYTHON:-3.13}"
+          TB2_DOCKER_IMAGE="${EVAL_TB2_DOCKER_IMAGE:-ghcr.io/astral-sh/uv:python3.13-bookworm}"
           if [[ "$SOLVE_TIMEOUT" =~ ^[0-9]+$ ]] && [[ "$SOLVE_TIMEOUT" -gt 0 ]]; then
             export EVAL_HARNESS_SOLVE_TIMEOUT_MS="$SOLVE_TIMEOUT"
           fi

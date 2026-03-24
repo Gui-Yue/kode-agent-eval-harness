@@ -216,6 +216,8 @@ npm run run -- \
   --out=reports/tb2-run.json
 ```
 
+TB2 defaults to Python `3.13`; override with `--tb2-python` or `EVAL_TB2_PYTHON` if needed.
+
 ### 5) TAU2 official runner
 
 ```bash

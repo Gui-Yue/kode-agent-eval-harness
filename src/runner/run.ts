@@ -147,8 +147,8 @@ export function parseRunOptions(options: Record<string, string>): RunOptions {
     tb2Agent: getOption(options, 'tb2-agent', 'tb2_agent') || 'oracle',
     tb2JobsDir: getOption(options, 'tb2-jobs-dir', 'tb2_jobs_dir') || 'tests/tmp/jobs',
     tb2Runner,
-    tb2Python: getOption(options, 'tb2-python', 'tb2_python') || '3.12',
-    tb2DockerImage: getOption(options, 'tb2-docker-image', 'tb2_docker_image') || 'ghcr.io/astral-sh/uv:python3.12-bookworm',
+    tb2Python: getOption(options, 'tb2-python', 'tb2_python') || '3.13',
+    tb2DockerImage: getOption(options, 'tb2-docker-image', 'tb2_docker_image') || 'ghcr.io/astral-sh/uv:python3.13-bookworm',
     tb2EnvFile: getOption(options, 'tb2-env-file', 'tb2_env_file', 'env-file', 'env_file'),
 
     tauDomain: getOption(options, 'tau-domain', 'tau_domain') || 'airline',
