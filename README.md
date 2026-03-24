@@ -50,7 +50,7 @@ Benchmark-specific variables:
 
 - SWE: `EVAL_SWE_MAX_INSTANCES`
 - TAU: `EVAL_TAU_DOMAIN`, `EVAL_TAU_NUM_TRIALS`, `EVAL_TAU_AGENT_CORE`
-- TB2: `EVAL_TB2_DATASET`, `EVAL_TB2_AGENT`, `EVAL_TB2_RUNNER`, `EVAL_TB2_PYTHON`, `EVAL_TB2_DOCKER_IMAGE`, `EVAL_TB2_HARBOR_VERSION`, `EVAL_TB2_LITELLM_VERSION`
+- TB2: `EVAL_TB2_DATASET`, `EVAL_TB2_AGENT`, `EVAL_TB2_RUNNER`, `EVAL_TB2_PYTHON`, `EVAL_TB2_DOCKER_IMAGE`, `EVAL_TB2_HARBOR_VERSION`, `EVAL_TB2_LITELLM_GIT_REF`
 
 Required secrets (set based on provider):
 
@@ -217,7 +217,7 @@ npm run run -- \
 ```
 
 TB2 defaults to Python `3.13`; override with `--tb2-python` or `EVAL_TB2_PYTHON` if needed.
-GitHub Actions installs pinned `harbor` and `litellm` versions before running the official TB2 scorer.
+GitHub Actions installs pinned `harbor` from PyPI and pinned `litellm` from the official GitHub repo before running the official TB2 scorer.
 
 ### 5) TAU2 official runner
 

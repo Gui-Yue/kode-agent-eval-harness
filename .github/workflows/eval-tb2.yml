@@ -52,7 +52,7 @@ jobs:
       EVAL_TB2_AGENT: ${{ vars.EVAL_TB2_AGENT }}
       EVAL_TB2_RUNNER: ${{ vars.EVAL_TB2_RUNNER }}
       EVAL_TB2_HARBOR_VERSION: ${{ vars.EVAL_TB2_HARBOR_VERSION }}
-      EVAL_TB2_LITELLM_VERSION: ${{ vars.EVAL_TB2_LITELLM_VERSION }}
+      EVAL_TB2_LITELLM_GIT_REF: ${{ vars.EVAL_TB2_LITELLM_GIT_REF }}
       EVAL_SOLVE_TIMEOUT_MS: ${{ vars.EVAL_SOLVE_TIMEOUT_MS }}
       EVAL_TB2_PYTHON: ${{ vars.EVAL_TB2_PYTHON }}
       EVAL_TB2_DOCKER_IMAGE: ${{ vars.EVAL_TB2_DOCKER_IMAGE }}
@@ -102,10 +102,11 @@ jobs:
         run: |
           set -euo pipefail
           HARBOR_VERSION="${EVAL_TB2_HARBOR_VERSION:-0.1.45}"
-          LITELLM_VERSION="${EVAL_TB2_LITELLM_VERSION:-1.80.8}"
+          LITELLM_GIT_REF="${EVAL_TB2_LITELLM_GIT_REF:-v1.81.3-stable}"
           PIP_INDEX_URL="https://pypi.org/simple"
           python -m pip install --index-url "$PIP_INDEX_URL" --upgrade pip setuptools wheel
-          python -m pip install --index-url "$PIP_INDEX_URL" "litellm==${LITELLM_VERSION}" "harbor==${HARBOR_VERSION}"
+          python -m pip install "git+https://github.com/BerriAI/litellm.git@${LITELLM_GIT_REF}"
+          python -m pip install --index-url "$PIP_INDEX_URL" "harbor==${HARBOR_VERSION}"
           harbor --version
 
       - name: Run TB2 official evaluation
