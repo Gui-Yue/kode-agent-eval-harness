@@ -50,6 +50,7 @@ jobs:
       EVAL_RUNTIME_REF: ${{ vars.EVAL_RUNTIME_REF }}
       EVAL_TAU_DOMAIN: ${{ vars.EVAL_TAU_DOMAIN }}
       EVAL_TAU_NUM_TRIALS: ${{ vars.EVAL_TAU_NUM_TRIALS }}
+      EVAL_TAU_MAX_CONCURRENCY: ${{ vars.EVAL_TAU_MAX_CONCURRENCY }}
       EVAL_SOLVE_TIMEOUT_MS: ${{ vars.EVAL_SOLVE_TIMEOUT_MS }}
       EVAL_TAU_AGENT_CORE: ${{ vars.EVAL_TAU_AGENT_CORE }}
       EVAL_AGENT_CORE: ${{ vars.EVAL_AGENT_CORE }}
@@ -106,11 +107,13 @@ jobs:
           RUNTIME_REF="${RUNTIME_REF_INPUT:-${EVAL_RUNTIME_REF:-${EVAL_AGENT_CORE:-kode-agent-sdk}}}"
           DOMAIN="${DOMAIN_INPUT:-${EVAL_TAU_DOMAIN:-airline}}"
           TRIALS="${TRIALS_INPUT:-${EVAL_TAU_NUM_TRIALS:-1}}"
+          TAU_MAX_CONCURRENCY="${EVAL_TAU_MAX_CONCURRENCY:-1}"
           SOLVE_TIMEOUT="${SOLVE_TIMEOUT_INPUT:-${EVAL_SOLVE_TIMEOUT_MS:-}}"
           AGENT_CORE="${AGENT_CORE_INPUT:-${EVAL_TAU_AGENT_CORE:-llm_agent}}"
           if [[ "$SOLVE_TIMEOUT" =~ ^[0-9]+$ ]] && [[ "$SOLVE_TIMEOUT" -gt 0 ]]; then
             export EVAL_HARNESS_SOLVE_TIMEOUT_MS="$SOLVE_TIMEOUT"
           fi
+          export TAU2_MAX_CONCURRENCY="$TAU_MAX_CONCURRENCY"
 
           if [[ -n "$RUNTIME_REF" ]]; then
             CMD=(npm run run -- --benchmark=tau --agent="$RUNTIME_REF" --provider="$PROVIDER" --model="$MODEL" --tau-domain="$DOMAIN" --num-trials="$TRIALS" --tau-data-dir=tests/tmp/tau2-data --out=reports/tau-official.json)
@@ -122,6 +125,7 @@ jobs:
           "${CMD[@]}"
 
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tau-eval-${{ github.run_id }}

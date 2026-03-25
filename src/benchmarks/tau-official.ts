@@ -376,7 +376,7 @@ export async function runTAUOfficialBenchmark(rawOpts: TAUOfficialOptions): Prom
   const runtimeRef = (rawOpts.runtimeRef || '').trim();
   const agentCore = runtimeRef ? 'eval_harness_agent' : resolveTauAgentCore(rawOpts.agentCore);
   const builtinAgentCore = runtimeRef ? false : isBuiltinTauAgentCore(agentCore);
-  const defaultMaxConcurrency = 3;
+  const defaultMaxConcurrency = 1;
   const rawMaxConcurrency = (process.env.TAU2_MAX_CONCURRENCY || '').trim();
   const parsedMaxConcurrency = Number(rawMaxConcurrency);
   const maxConcurrency = Number.isFinite(parsedMaxConcurrency) && parsedMaxConcurrency > 0
