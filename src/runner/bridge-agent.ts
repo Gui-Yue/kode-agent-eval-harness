@@ -157,7 +157,10 @@ export async function bridgeAgentCommand(opts: BridgeAgentOptions): Promise<void
   try {
     logBridge(`solve start task=${input.task_id} turn=${opts.turnId}`);
     const output = await solveConversationTurn(adapter, input);
-    logBridge(`solve complete task=${input.task_id} turn=${opts.turnId} action=${output.action.type}`);
+    logBridge(
+      `solve complete task=${input.task_id} turn=${opts.turnId} action=${output.action.type}`
+      + (output.action.type === 'tool_call' ? ` name=${output.action.name || ''}` : ''),
+    );
     process.stdout.write(JSON.stringify(formatAction(output)));
   } finally {
     logBridge(`adapter closing task=${input.task_id} turn=${opts.turnId}`);

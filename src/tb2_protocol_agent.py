@@ -209,6 +209,7 @@ def _tsx_path() -> str:
 
 
 async def _invoke_bridge(*, payload: dict[str, Any], turn: int, timeout_ms: int) -> dict[str, Any]:
+    task_id = str(payload.get('task_id') or 'tb2-task')
     cmd = [
         _tsx_path(),
         str(_repo_root() / 'src' / 'index.ts'),
@@ -216,6 +217,7 @@ async def _invoke_bridge(*, payload: dict[str, Any], turn: int, timeout_ms: int)
         '--mode=tb2',
         f"--agent={os.getenv('EVAL_HARNESS_AGENT_REF', 'mock')}",
         f"--model={os.getenv('EVAL_HARNESS_MODEL', 'openai/glm-5')}",
+        f'--task-id={task_id}',
         f'--turn-id={turn}',
         f'--deadline-ms={timeout_ms}',
     ]
