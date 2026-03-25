@@ -197,7 +197,7 @@ function normalizeError(err: unknown): AgentError {
 function pickAction(
   allowedActions: string[],
   outputText: string,
-  tools: Array<{ name: string; schema?: Record<string, unknown> }>,
+  tools: Array<{ name: string; description?: string; schema?: Record<string, unknown> }>,
 ): StepOutput['action'] {
   const preferred = tools.length > 0
     ? ['tool_call', 'final_answer', 'no_op']
@@ -225,11 +225,14 @@ function pickAction(
   };
 }
 
-function renderHostedToolsPrompt(tools: Array<{ name: string; schema?: Record<string, unknown> }>): string {
+function renderHostedToolsPrompt(
+  tools: Array<{ name: string; description?: string; schema?: Record<string, unknown> }>,
+): string {
   if (!tools.length) return 'No tools available.';
   return tools
     .map(tool => JSON.stringify({
       name: tool.name,
+      description: tool.description || '',
       parameters: tool.schema || { type: 'object', additionalProperties: true },
     }, null, 2))
     .join('\n\n');
@@ -259,6 +262,8 @@ function buildHostedStepPrompt(input: StepInput): string {
     'You cannot directly execute shell or filesystem actions yourself in this turn.',
     'You must choose the next action by returning exactly one JSON object and nothing else.',
     'If the task is not complete, prefer a tool call over a final answer.',
+    'Prefer the specialized hosted tools for reading, searching, and editing files.',
+    'Use exec mainly for focused commands, builds, tests, or actions that have no structured hosted tool.',
     'Allowed JSON formats:',
     '{"type":"tool_call","name":"tool_name","arguments":{"arg":"value"}}',
     '{"type":"final_answer","content":"short final response"}',
@@ -277,7 +282,7 @@ function buildHostedStepPrompt(input: StepInput): string {
 function parseHostedStepAction(
   rawText: string,
   allowedActions: string[],
-  tools: Array<{ name: string; schema?: Record<string, unknown> }>,
+  tools: Array<{ name: string; description?: string; schema?: Record<string, unknown> }>,
 ): StepOutput['action'] {
   const candidate = extractJsonCandidate(rawText);
   if (!candidate) return pickAction(allowedActions, rawText, tools);

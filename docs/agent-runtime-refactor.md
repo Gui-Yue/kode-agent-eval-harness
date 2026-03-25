@@ -195,10 +195,22 @@ TB2 should use:
 Flow:
 
 1. Harbor remains the official runner
-2. Harbor exposes shell execution as a hosted cockpit tool
+2. Harbor exposes hosted runtime capabilities through the cockpit tool interface
 3. cockpit resolves vehicle and executes one solve turn
 4. Harbor bridge executes tool calls in the official environment
 5. Harbor still owns result files and final scoring
+
+In practice, the TB2 bridge should not stop at a single raw shell tool.
+
+The runtime-under-test should receive a hosted capability surface that is comfortable for an LLM driver, for example:
+
+- directory listing
+- bounded file reads
+- text search
+- precise file writes / replacements
+- shell execution for tests, build steps, and fallback actions
+
+These are still benchmark-hosted capabilities, not local harness-owned shortcuts. The official TB2 environment remains the execution source of truth.
 
 ## Current Phase Implementation
 

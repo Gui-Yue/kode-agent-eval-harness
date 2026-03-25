@@ -218,6 +218,16 @@ npm run run -- \
 
 TB2 defaults to Python `3.13`; override with `--tb2-python` or `EVAL_TB2_PYTHON` if needed.
 GitHub Actions installs pinned `harbor` from PyPI and pinned `litellm` from the official GitHub repo before running the official TB2 scorer.
+The TB2 solve bridge now exposes a structured hosted tool surface on top of Harbor's official environment:
+
+- `list_dir`
+- `read_file`
+- `grep_text`
+- `write_file`
+- `replace_in_file`
+- `exec`
+
+These tools are still executed inside the official Harbor environment. `exec` remains the escape hatch for terminal tasks, while file/search tools reduce prompt bloat and make the runtime easier for the LLM to drive. Tool outputs are bounded by `EVAL_HARNESS_TB2_TOOL_OUTPUT_CHARS` (default `12000`) to avoid replaying huge shell output back into context every turn.
 
 ### 5) TAU2 official runner
 

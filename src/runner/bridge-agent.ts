@@ -66,10 +66,13 @@ function normalizeTools(raw: unknown): StepInput['observation']['tools'] {
       : tool;
     const name = typeof fn.name === 'string' ? fn.name : undefined;
     if (!name) continue;
+    const description = typeof fn.description === 'string'
+      ? fn.description
+      : (typeof tool.description === 'string' ? tool.description : undefined);
     const schema = fn.parameters && typeof fn.parameters === 'object'
       ? fn.parameters as Record<string, unknown>
       : undefined;
-    out.push({ name, schema });
+    out.push({ name, description, schema });
   }
 
   return out;

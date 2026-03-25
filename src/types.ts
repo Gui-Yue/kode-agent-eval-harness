@@ -51,7 +51,7 @@ export interface StepInput {
   observation: {
     messages: Array<{ role: string; content: string }>;
     state: Record<string, unknown>;
-    tools: Array<{ name: string; schema?: Record<string, unknown> }>;
+    tools: Array<{ name: string; description?: string; schema?: Record<string, unknown> }>;
   };
   allowed_actions: string[];
   deadline_ms: number;
