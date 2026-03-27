@@ -139,12 +139,13 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          echo "## Tau Benchmark" >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p .bench
           for result in benchmark-runs/tau/*.json; do
-            echo "### $(basename "$result")" >> "$GITHUB_STEP_SUMMARY"
-            echo '```json' >> "$GITHUB_STEP_SUMMARY"
-            cat "$result" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            report=".bench/$(basename "$result" .json)-report.md"
+            python3 scripts/bench/render-tau-report.py \
+              --input "$result" \
+              --output "$report"
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
           done
 
       - name: Upload Tau artifacts

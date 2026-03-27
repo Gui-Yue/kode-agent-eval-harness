@@ -596,6 +596,37 @@ def format_summary(
         lines.append("## pass@k")
         lines.extend(f"- pass@{k}: `{value:.3f}`" for k, value in sorted(pass_metrics.items()))
 
+    lines.append("")
+    lines.append("## Task Results")
+    lines.append("| Task | Status | Main Signal |")
+    lines.append("| --- | --- | --- |")
+    for item in merged_results:
+        status = "resolved" if item["is_resolved"] else "unresolved"
+        verifier_report = item.get("verifier_report") or {}
+        target_failures = verifier_report.get("target_failures") or []
+        regressions = verifier_report.get("regressions") or []
+        additional_failed_tests = item.get("additional_failed_tests") or []
+        exception_info = item.get("exception_info") or {}
+        agent_issue = (item.get("agent_result") or {}).get("issue_type")
+
+        if item["is_resolved"]:
+            signal = "passed"
+        elif exception_info.get("exception_type"):
+            signal = exception_info["exception_type"]
+        elif agent_issue:
+            signal = agent_issue
+        elif target_failures:
+            signal = f"target failures: {len(target_failures)}"
+        elif regressions:
+            signal = f"regressions: {len(regressions)}"
+        elif additional_failed_tests:
+            signal = f"additional failed tests: {len(additional_failed_tests)}"
+        else:
+            signal = "unresolved"
+
+        signal = signal.replace("\n", " ").replace("|", "\\|")
+        lines.append(f"| `{item['task_name']}` | `{status}` | {signal} |")
+
     if unresolved_results:
         lines.append("")
         lines.append("## Unresolved Tasks")
