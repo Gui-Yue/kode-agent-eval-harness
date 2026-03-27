@@ -1,0 +1,137 @@
+name: Tau Benchmark
+run-name: Tau Benchmark | ${{ github.event.inputs.model_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_name:
+        description: provider/model for KODE tau adapter
+        required: true
+      tau_env:
+        description: Tau domain
+        required: false
+        default: retail
+      task_split:
+        description: Tau task split
+        required: false
+        default: test
+      user_model:
+        description: User simulator model
+        required: false
+        default: gpt-4o
+      user_model_provider:
+        description: User simulator provider
+        required: false
+        default: openai
+      user_strategy:
+        description: User simulator strategy
+        required: false
+        default: llm
+      task_ids:
+        description: Optional comma-separated task IDs
+        required: false
+        default: ""
+      num_trials:
+        description: Number of trials
+        required: false
+        default: "1"
+      max_concurrency:
+        description: Max concurrent tasks
+        required: false
+        default: "2"
+      start_index:
+        description: Start index when task_ids is empty
+        required: false
+        default: "0"
+      end_index:
+        description: End index, -1 means all
+        required: false
+        default: "-1"
+      seed:
+        description: Random seed
+        required: false
+        default: "10"
+      shuffle:
+        description: Shuffle task order, 0 or 1
+        required: false
+        default: "0"
+      temperature:
+        description: Model temperature
+        required: false
+        default: "0.0"
+      tau_ref:
+        description: tau-bench git ref to clone at runtime
+        required: false
+        default: main
+
+jobs:
+  tau-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      MODEL_NAME: ${{ github.event.inputs.model_name || vars.BENCH_MODEL_NAME }}
+      TAU_ENV: ${{ github.event.inputs.tau_env || 'retail' }}
+      TAU_TASK_SPLIT: ${{ github.event.inputs.task_split || 'test' }}
+      TAU_USER_MODEL: ${{ github.event.inputs.user_model || 'gpt-4o' }}
+      TAU_USER_MODEL_PROVIDER: ${{ github.event.inputs.user_model_provider || 'openai' }}
+      TAU_USER_STRATEGY: ${{ github.event.inputs.user_strategy || 'llm' }}
+      TAU_TASK_IDS: ${{ github.event.inputs.task_ids || '' }}
+      TAU_NUM_TRIALS: ${{ github.event.inputs.num_trials || '1' }}
+      TAU_MAX_CONCURRENCY: ${{ github.event.inputs.max_concurrency || '2' }}
+      TAU_START_INDEX: ${{ github.event.inputs.start_index || '0' }}
+      TAU_END_INDEX: ${{ github.event.inputs.end_index || '-1' }}
+      TAU_SEED: ${{ github.event.inputs.seed || '10' }}
+      TAU_SHUFFLE: ${{ github.event.inputs.shuffle || '0' }}
+      TAU_TEMPERATURE: ${{ github.event.inputs.temperature || '0.0' }}
+      TAU_REF: ${{ github.event.inputs.tau_ref || 'main' }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+      OPENAI_API: ${{ vars.OPENAI_API }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_BASE_URL: ${{ vars.GEMINI_BASE_URL }}
+      MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+      MINIMAX_BASE_URL: ${{ vars.MINIMAX_BASE_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install KODE dependencies
+        run: npm ci
+
+      - name: Run Tau benchmark
+        run: bash scripts/bench/run-tau-benchmark.sh
+
+      - name: Summarize Tau outputs
+        if: always()
+        shell: bash
+        run: |
+          shopt -s nullglob
+          echo "## Tau Benchmark" >> "$GITHUB_STEP_SUMMARY"
+          for result in benchmark-runs/tau/*.json; do
+            echo "### $(basename "$result")" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$result" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Upload Tau artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tau-benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            benchmark-runs/tau
+            .bench
