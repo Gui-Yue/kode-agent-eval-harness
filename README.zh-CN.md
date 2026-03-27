@@ -1,26 +1,26 @@
 # Kode Agent Eval Harness
 
-Evaluate KODE on `SWE`, `TB2`, and `Tau` through a standalone benchmark adapter layer, without coupling benchmark logic to the SDK repository.
+通过独立 benchmark adapter 层评测 KODE 在 `SWE`、`TB2`、`Tau` 上的表现，而不把 benchmark 逻辑耦合进 SDK 主仓库。
 
 ## Features
 
-- Runs `swebench-verified` through Harbor
-- Runs `terminal-bench@2.0` through Harbor
-- Runs official `tau-bench`
-- Uses the published npm package `@shareai-lab/kode-sdk`
-- Pulls benchmark frameworks dynamically at runtime
-- Supports GitHub Actions smoke tests and larger benchmark runs
-- Produces merged summaries and per-task result artifacts
+- 通过 Harbor 运行 `swebench-verified`
+- 通过 Harbor 运行 `terminal-bench@2.0`
+- 运行官方 `tau-bench`
+- 通过 npm 包 `@shareai-lab/kode-sdk` 调用 KODE
+- benchmark 框架在运行时动态拉取
+- 支持 GitHub Actions 冒烟测试和更大规模评测
+- 产出汇总报告和按题拆分的结果文件
 
 ## Quick Start
 
-Install dependencies:
+安装依赖：
 
 ```bash
 npm install
 ```
 
-Run local validation:
+做本地检查：
 
 ```bash
 npm run typecheck
@@ -28,15 +28,15 @@ npm run bench:bundle:harbor
 npm run bench:bundle:tau
 ```
 
-Model names use `provider/model` format.
+模型名使用 `provider/model` 格式。
 
-Example:
+例如：
 
 ```text
 glm/glm-5
 ```
 
-## Architecture
+## 架构图
 
 ```text
             +----------------------+
@@ -48,7 +48,7 @@ glm/glm-5
           |                          |
           v                          v
   +---------------+          +---------------+
-  | Harbor Path   |          | Tau Path      |
+  | Harbor 路径   |          | Tau 路径      |
   | SWE / TB2     |          | Tau           |
   +-------+-------+          +-------+-------+
           |                          |
@@ -70,19 +70,19 @@ glm/glm-5
 
 ## Run on GitHub Actions
 
-Use the manual dispatch workflows:
+手动 dispatch 这些 workflow：
 
 - `.github/workflows/eval-swe.yml`
 - `.github/workflows/eval-tb2.yml`
 - `.github/workflows/eval-tau.yml`
 
-Minimum required input:
+最基本的输入：
 
 ```text
 model_name=provider/model
 ```
 
-Typical repository configuration:
+常见仓库配置：
 
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
@@ -91,12 +91,12 @@ Typical repository configuration:
 - `GEMINI_API_KEY`
 - `MINIMAX_API_KEY`
 
-For OpenAI-compatible GLM routing, the harness reads:
+如果走 OpenAI-compatible 的 GLM 路由，实际读取的是：
 
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
 
-Common workflow inputs:
+常用 workflow 输入：
 
 ### SWE / TB2
 
@@ -123,25 +123,25 @@ Common workflow inputs:
 
 ### SWE / TB2
 
-Each run produces:
+每次 run 会产出：
 
 - shard artifacts
-- per-task `result.json`
+- 每题的 `result.json`
 - `agent/kode-result.json`
-- merged summary markdown
-- merged results JSON
-- merged per-test details JSON
+- 合并后的 summary markdown
+- 合并后的 results JSON
+- 合并后的 per-test details JSON
 
 ### Tau
 
-Each run produces:
+每次 run 会产出：
 
-- final metrics JSON
-- per-task reward data
-- per-task trajectory data
+- 最终 metrics JSON
+- 每题 reward 数据
+- 每题 trajectory 数据
 
-## Chinese Version
+## English Version
 
-See:
+见：
 
-- `README.zh-CN.md`
+- `README.md`
