@@ -18,7 +18,7 @@ on:
       user_model:
         description: User simulator model
         required: false
-        default: gpt-4o
+        default: ""
       user_model_provider:
         description: User simulator provider
         required: false
@@ -38,7 +38,7 @@ on:
       max_concurrency:
         description: Max concurrent tasks
         required: false
-        default: "2"
+        default: "1"
       start_index:
         description: Start index when task_ids is empty
         required: false
@@ -59,6 +59,22 @@ on:
         description: Model temperature
         required: false
         default: "0.0"
+      retry_attempts:
+        description: Retry attempts for rate-limited Tau calls
+        required: false
+        default: "6"
+      retry_initial_delay:
+        description: Initial backoff delay in seconds
+        required: false
+        default: "5"
+      retry_max_delay:
+        description: Maximum backoff delay in seconds
+        required: false
+        default: "60"
+      retry_backoff:
+        description: Backoff multiplier
+        required: false
+        default: "2"
       tau_ref:
         description: tau-bench git ref to clone at runtime
         required: false
@@ -72,17 +88,21 @@ jobs:
       MODEL_NAME: ${{ github.event.inputs.model_name || vars.BENCH_MODEL_NAME }}
       TAU_ENV: ${{ github.event.inputs.tau_env || 'retail' }}
       TAU_TASK_SPLIT: ${{ github.event.inputs.task_split || 'test' }}
-      TAU_USER_MODEL: ${{ github.event.inputs.user_model || 'gpt-4o' }}
+      TAU_USER_MODEL: ${{ github.event.inputs.user_model || vars.OPENAI_MODEL_ID || vars.EVAL_MODEL || 'gpt-4o' }}
       TAU_USER_MODEL_PROVIDER: ${{ github.event.inputs.user_model_provider || 'openai' }}
       TAU_USER_STRATEGY: ${{ github.event.inputs.user_strategy || 'llm' }}
       TAU_TASK_IDS: ${{ github.event.inputs.task_ids || '' }}
       TAU_NUM_TRIALS: ${{ github.event.inputs.num_trials || '1' }}
-      TAU_MAX_CONCURRENCY: ${{ github.event.inputs.max_concurrency || '2' }}
+      TAU_MAX_CONCURRENCY: ${{ github.event.inputs.max_concurrency || '1' }}
       TAU_START_INDEX: ${{ github.event.inputs.start_index || '0' }}
       TAU_END_INDEX: ${{ github.event.inputs.end_index || '-1' }}
       TAU_SEED: ${{ github.event.inputs.seed || '10' }}
       TAU_SHUFFLE: ${{ github.event.inputs.shuffle || '0' }}
       TAU_TEMPERATURE: ${{ github.event.inputs.temperature || '0.0' }}
+      TAU_RETRY_ATTEMPTS: ${{ github.event.inputs.retry_attempts || '6' }}
+      TAU_RETRY_INITIAL_DELAY: ${{ github.event.inputs.retry_initial_delay || '5' }}
+      TAU_RETRY_MAX_DELAY: ${{ github.event.inputs.retry_max_delay || '60' }}
+      TAU_RETRY_BACKOFF: ${{ github.event.inputs.retry_backoff || '2' }}
       TAU_REF: ${{ github.event.inputs.tau_ref || 'main' }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}

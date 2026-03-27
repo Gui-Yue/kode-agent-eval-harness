@@ -4,17 +4,20 @@ import json
 import multiprocessing
 import os
 import random
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from math import comb
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, TypeVar
 
 from kode_bench.tau.kode_tau_agent import KodeTauAgent
 from tau_bench.envs import get_env
 from tau_bench.envs.user import UserStrategy
 from tau_bench.types import EnvRunResult
+
+T = TypeVar("T")
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,6 +50,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--num-trials", type=int, default=1)
     parser.add_argument("--step-runner-path", type=Path, required=True)
+    parser.add_argument("--retry-attempts", type=int, default=6)
+    parser.add_argument("--retry-initial-delay", type=float, default=5.0)
+    parser.add_argument("--retry-max-delay", type=float, default=60.0)
+    parser.add_argument("--retry-backoff", type=float, default=2.0)
     return parser.parse_args()
 
 
@@ -75,16 +82,72 @@ def display_metrics(results: List[EnvRunResult]) -> Dict[str, Any]:
     }
 
 
+def is_retryable_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    retry_markers = (
+        "429",
+        "rate limit",
+        "ratelimit",
+        "too many requests",
+        "timeout",
+        "temporarily unavailable",
+        "connection reset",
+        "service unavailable",
+        "internal server error",
+        "bad gateway",
+        "gateway timeout",
+        "apiconnectionerror",
+        "apitimeouterror",
+        "1302",
+    )
+    return any(marker in message for marker in retry_markers)
+
+
+def retry_with_backoff(
+    operation: Callable[[], T],
+    *,
+    label: str,
+    attempts: int,
+    initial_delay: float,
+    max_delay: float,
+    backoff: float,
+) -> T:
+    delay = max(initial_delay, 0.0)
+    total_attempts = max(attempts, 1)
+    for attempt in range(1, total_attempts + 1):
+        try:
+            return operation()
+        except Exception as exc:
+            if attempt >= total_attempts or not is_retryable_error(exc):
+                raise
+            print(
+                f"[tau] retryable error during {label} "
+                f"(attempt {attempt}/{total_attempts}): {exc}"
+            )
+            if delay > 0:
+                print(f"[tau] sleeping {delay:.1f}s before retrying {label}")
+                time.sleep(delay)
+            delay = min(max_delay, delay * max(backoff, 1.0)) if delay else 0.0
+    raise RuntimeError(f"Retry loop for {label} exited unexpectedly")
+
+
 def main() -> None:
     args = parse_args()
     random.seed(args.seed)
     args.log_dir.mkdir(parents=True, exist_ok=True)
-    env = get_env(
-        args.env,
-        user_strategy=args.user_strategy,
-        user_model=args.user_model,
-        user_provider=args.user_model_provider,
-        task_split=args.task_split,
+    env = retry_with_backoff(
+        lambda: get_env(
+            args.env,
+            user_strategy=args.user_strategy,
+            user_model=args.user_model,
+            user_provider=args.user_model_provider,
+            task_split=args.task_split,
+        ),
+        label="initialize tau environment",
+        attempts=args.retry_attempts,
+        initial_delay=args.retry_initial_delay,
+        max_delay=args.retry_max_delay,
+        backoff=args.retry_backoff,
     )
 
     if "/" not in args.model_name:
@@ -118,22 +181,32 @@ def main() -> None:
             random.shuffle(idxs)
 
         def _run(idx: int) -> EnvRunResult:
-            isolated_env = get_env(
-                args.env,
-                user_strategy=args.user_strategy,
-                user_model=args.user_model,
-                user_provider=args.user_model_provider,
-                task_split=args.task_split,
-                task_index=idx,
-            )
             try:
-                res = agent.solve(env=isolated_env, task_index=idx)
-                result = EnvRunResult(
-                    task_id=idx,
-                    reward=res.reward,
-                    info=res.info,
-                    traj=res.messages,
-                    trial=trial_index,
+                def _solve_once() -> EnvRunResult:
+                    isolated_env = get_env(
+                        args.env,
+                        user_strategy=args.user_strategy,
+                        user_model=args.user_model,
+                        user_provider=args.user_model_provider,
+                        task_split=args.task_split,
+                        task_index=idx,
+                    )
+                    res = agent.solve(env=isolated_env, task_index=idx)
+                    return EnvRunResult(
+                        task_id=idx,
+                        reward=res.reward,
+                        info=res.info,
+                        traj=res.messages,
+                        trial=trial_index,
+                    )
+
+                result = retry_with_backoff(
+                    _solve_once,
+                    label=f"run tau task {idx}",
+                    attempts=args.retry_attempts,
+                    initial_delay=args.retry_initial_delay,
+                    max_delay=args.retry_max_delay,
+                    backoff=args.retry_backoff,
                 )
             except Exception as exc:
                 result = EnvRunResult(
