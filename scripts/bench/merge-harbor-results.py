@@ -492,6 +492,7 @@ def format_summary(
     resolved = sum(1 for item in merged_results if item["is_resolved"])
     unresolved = actual_results - resolved
     accuracy = (resolved / actual_results) if actual_results else 0.0
+    unresolved_results = [item for item in merged_results if not item["is_resolved"]]
     test_detail_coverage = sum(1 for item in merged_results if item.get("test_log"))
     reward_coverage = sum(1 for item in merged_results if item.get("rewards"))
     verifier_report_coverage = sum(
@@ -499,17 +500,17 @@ def format_summary(
     )
     tasks_with_target_failures = [
         item["task_name"]
-        for item in merged_results
+        for item in unresolved_results
         if (item.get("verifier_report") or {}).get("target_failures")
     ]
     tasks_with_regressions = [
         item["task_name"]
-        for item in merged_results
+        for item in unresolved_results
         if (item.get("verifier_report") or {}).get("regressions")
     ]
     tasks_with_additional_failures = [
         item["task_name"]
-        for item in merged_results
+        for item in unresolved_results
         if item.get("additional_failed_tests")
     ]
     raw_log_conflicts = [
@@ -522,7 +523,7 @@ def format_summary(
     ]
 
     failure_modes: dict[str, int] = defaultdict(int)
-    for item in merged_results:
+    for item in unresolved_results:
         agent_issue = (item.get("agent_result") or {}).get("issue_type")
         if agent_issue:
             failure_modes[agent_issue] += 1
@@ -595,13 +596,10 @@ def format_summary(
         lines.append("## pass@k")
         lines.extend(f"- pass@{k}: `{value:.3f}`" for k, value in sorted(pass_metrics.items()))
 
-    unresolved_details = [
-        item for item in merged_results if not item["is_resolved"]
-    ]
-    if unresolved_details:
+    if unresolved_results:
         lines.append("")
         lines.append("## Unresolved Tasks")
-        for item in unresolved_details:
+        for item in unresolved_results:
             verifier_report = item.get("verifier_report") or {}
             target_failures = verifier_report.get("target_failures") or []
             regressions = verifier_report.get("regressions") or []
