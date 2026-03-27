@@ -2,27 +2,21 @@
   "name": "kode-agent-eval-harness",
   "version": "0.1.0",
   "private": true,
-  "description": "Pluggable agent evaluation harness for SWE-bench-Verified, Terminal Bench 2.0, and TAU2",
-  "license": "MIT",
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/index.ts",
-    "run": "tsx src/index.ts run",
-    "compare": "tsx src/index.ts compare",
-    "report": "tsx src/index.ts report",
-    "compliance": "tsx src/index.ts compliance"
+    "bench:bundle:harbor": "esbuild src/bench/kode-benchmark-runner.ts --bundle --platform=node --format=cjs --target=node20 --outfile=.bench/kode-harbor-runner.cjs",
+    "bench:bundle:tau": "esbuild src/bench/kode-tau-step-runner.ts --bundle --platform=node --format=cjs --target=node20 --outfile=.bench/kode-tau-step-runner.cjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1"
+    "@shareai-lab/kode-sdk": "^2.7.4"
   },
   "devDependencies": {
-    "@types/node": "^20.17.0",
-    "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "@types/node": "^20.17.57",
+    "esbuild": "^0.25.4",
+    "typescript": "^5.8.3"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.0.0"
   }
 }

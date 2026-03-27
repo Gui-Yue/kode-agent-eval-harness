@@ -1,9 +1,0 @@
-{
-  "api_version": "agent-runtime/v1",
-  "name": "mock",
-  "transport": {
-    "kind": "builtin",
-    "adapter": "mock"
-  },
-  "supported_benchmarks": ["mock", "swe", "tb2", "tau"]
-}
